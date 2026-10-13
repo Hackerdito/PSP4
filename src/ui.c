@@ -1,0 +1,503 @@
+// ui.c - the VAULT launcher: header, hero, library carousel, footer and dialogs.
+#include "ui.h"
+#include "platform.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define VAULT_VERSION "v0.1"
+
+// Palette (matches the VAULT mockup)
+#define C_BG      0x07080C
+#define C_PANEL   0x11131A
+#define C_TEXT    0xF2F4F8
+#define C_SOFT    0xD5D9E2
+#define C_MUTED   0xA3A9B8
+#define C_DIM     0x6B7180
+#define C_ACCENT  0x3DF5C8
+#define C_CSO     0xFF9A5C
+#define C_INK     0x07080C
+
+#define PAD_X     96
+#define TILE_W    288
+#define TILE_H    162
+#define TILE_GAP  32
+#define TILE_Y    716
+#define COVER_X   1180
+#define COVER_Y   168
+#define COVER_W   644
+#define COVER_H   362
+
+static const char *kFilterNames[3] = { "Todos", "ISO", "CSO" };
+
+// ------------------------------------------------------------------ helpers
+
+static uint32_t fmt_color(DiscFormat f) { return f == DISC_CSO ? C_CSO : C_ACCENT; }
+static const char *fmt_name(DiscFormat f) { return f == DISC_CSO ? "CSO" : "ISO"; }
+
+static Game *selected(App *a) {
+    if (a->view_count == 0) return NULL;
+    return &a->lib.games[a->view[a->sel]];
+}
+
+// PlayStation face-button glyphs, drawn as vectors.
+typedef enum { G_CROSS, G_CIRCLE, G_TRIANGLE, G_SQUARE } Glyph;
+
+static void ps_glyph(Canvas *c, Glyph g, float cx, float cy, float r, int filled_bg) {
+    static const uint32_t col[4] = { 0x6FA8FF, 0xFF6B6B, 0x3DF5C8, 0xF49BFF };
+    uint32_t k = col[g];
+    if (filled_bg) fill_circle(c, cx, cy, r, C_INK, 0.85f);
+    stroke_circle(c, cx, cy, r - 1, 2, k, 1);
+    float s = r * 0.42f;
+    switch (g) {
+    case G_CROSS:
+        draw_line(c, cx - s, cy - s, cx + s, cy + s, 2.2f, k, 1);
+        draw_line(c, cx + s, cy - s, cx - s, cy + s, 2.2f, k, 1);
+        break;
+    case G_CIRCLE: stroke_circle(c, cx, cy, s, 2.2f, k, 1); break;
+    case G_TRIANGLE: {
+        float h = s * 1.1f;
+        draw_line(c, cx, cy - h, cx + h, cy + h * 0.75f, 2.2f, k, 1);
+        draw_line(c, cx + h, cy + h * 0.75f, cx - h, cy + h * 0.75f, 2.2f, k, 1);
+        draw_line(c, cx - h, cy + h * 0.75f, cx, cy - h, 2.2f, k, 1);
+        break;
+    }
+    case G_SQUARE: stroke_rrect(c, cx - s, cy - s, s * 2, s * 2, 1, 2.2f, k, 1); break;
+    }
+}
+
+// Little shoulder-button chip ("L1", "R1").
+static float key_chip(Canvas *c, float x, float cy, const char *label) {
+    float w = text_width(FONT_MONO, 15, label, 0) + 16;
+    stroke_rrect(c, x, cy - 14, w, 28, 7, 1.5f, C_MUTED, 0.7f);
+    draw_text(c, FONT_MONO, 15, x + 8, cy + 5, label, C_MUTED, 1, 0);
+    return w;
+}
+
+static float pill(Canvas *c, float x, float y, const char *text, uint32_t bg, float bg_a, uint32_t fg, FontId f, float size, float padx, float h) {
+    float w = text_width(f, size, text, 0) + padx * 2;
+    fill_rrect(c, x, y, w, h, 8, bg, bg_a);
+    draw_text(c, f, size, x + padx, y + h / 2 + font_ascent(f, size) * 0.36f, text, fg, 1, 0);
+    return w;
+}
+
+// Greedy word wrap into at most `max_lines`; returns line count.
+static int wrap_text(FontId f, float size, const char *s, float max_w, char lines[][160], int max_lines) {
+    int n = 0;
+    char cur[160] = "";
+    const char *p = s;
+    while (*p && n < max_lines) {
+        while (*p == ' ') p++;
+        const char *e = p;
+        while (*e && *e != ' ') e++;
+        char word[160];
+        snprintf(word, sizeof word, "%.*s", (int)(e - p), p);
+        char test[320];
+        snprintf(test, sizeof test, "%s%s%s", cur, cur[0] ? " " : "", word);
+        if (cur[0] && text_width(f, size, test, -1) > max_w) {
+            snprintf(lines[n++], 160, "%s", cur);
+            snprintf(cur, sizeof cur, "%s", word);
+        } else {
+            snprintf(cur, sizeof cur, "%s", test);
+        }
+        p = e;
+    }
+    if (n < max_lines && cur[0]) snprintf(lines[n++], 160, "%s", cur);
+    else if (*p && n == max_lines) {
+        // Text left over: ellipsize the last line with the remainder.
+        char rest[320];
+        snprintf(rest, sizeof rest, "%s %s", lines[n - 1], p);
+        text_ellipsize(f, size, rest, max_w, lines[n - 1], 160, -1);
+    }
+    return n;
+}
+
+// Generated art for games without artwork: two-tone shape composition like the mockup.
+static void fallback_art(Canvas *c, float x, float y, float w, float h, float r, uint32_t c1, uint32_t c2) {
+    fill_rrect(c, x, y, w, h, r, c1, 1);
+    // A big disc in the corner, clipped by drawing it inside the card bounds only.
+    float R = h * 0.95f, cx = x + w - h * 0.35f, cy = y + h * 0.05f;
+    int x0 = (int)x, x1 = (int)(x + w), y0 = (int)y, y1 = (int)(y + h);
+    for (int j = y0; j < y1; j++)
+        for (int i = x0; i < x1; i++) {
+            float dx = i + 0.5f - cx, dy = j + 0.5f - cy;
+            float cov = R - sqrtf(dx * dx + dy * dy) + 0.5f;
+            if (cov <= 0) continue;
+            // keep inside the rounded card
+            float qx = fabsf(i + 0.5f - (x + w / 2)) - (w / 2 - r), qy = fabsf(j + 0.5f - (y + h / 2)) - (h / 2 - r);
+            float sd = (qx > 0 && qy > 0) ? sqrtf(qx * qx + qy * qy) - r : fmaxf(qx, qy) - r;
+            float m = fminf(fminf(cov, 1), fmaxf(0, fminf(1, 0.5f - sd)));
+            if (m > 0) fill_rect(c, i, j, 1, 1, c2, m);
+        }
+    float sy = y + h * 0.66f;
+    draw_line(c, x + 2, sy + w * 0.10f, x + w - 2, sy - w * 0.10f, fmaxf(4, h * 0.022f), C_INK, 1);
+    draw_line(c, x + 2, sy + w * 0.10f + h * 0.07f, x + w - 2, sy - w * 0.10f + h * 0.07f, fmaxf(2, h * 0.008f), C_INK, 0.6f);
+}
+
+// ------------------------------------------------------------------ state
+
+static void rebuild_view(App *a) {
+    a->view_count = 0;
+    for (int i = 0; i < a->lib.count; i++) {
+        DiscFormat f = a->lib.games[i].fmt;
+        if (a->filter == 1 && f != DISC_ISO) continue;
+        if (a->filter == 2 && f != DISC_CSO) continue;
+        a->view[a->view_count++] = i;
+    }
+    if (a->sel >= a->view_count) a->sel = a->view_count ? a->view_count - 1 : 0;
+    a->scroll_target = a->scroll = 0;
+    a->bg_for = -2;
+}
+
+void app_init(App *a) {
+    memset(a, 0, sizeof *a);
+    a->bg = canvas_new(SCREEN_W, SCREEN_H);
+    a->bg_for = -2;
+    a->cover_for = -1;
+}
+
+void app_rescan(App *a) {
+    image_free(&a->cover);
+    a->cover_for = -1;
+    library_scan(&a->lib, TILE_W, TILE_H);
+    rebuild_view(a);
+    plat_log("scan: %d games in %d folders", a->lib.count, a->lib.folders_found);
+}
+
+static void update_scroll_target(App *a) {
+    float view_w = SCREEN_W - PAD_X * 2;
+    float pos = a->sel * (TILE_W + TILE_GAP);
+    if (pos - a->scroll_target > view_w - TILE_W) a->scroll_target = pos - (view_w - TILE_W);
+    if (pos < a->scroll_target) a->scroll_target = pos;
+}
+
+int app_update(App *a, uint32_t pressed, uint32_t held) {
+    int dirty = 0;
+    (void)held;
+    if (a->modal != MODAL_NONE) {
+        if (pressed & (BTN_CIRCLE | BTN_CROSS)) { a->modal = MODAL_NONE; dirty = 1; }
+        return dirty;
+    }
+    int prev_sel = a->sel;
+    if ((pressed & BTN_RIGHT) && a->sel < a->view_count - 1) a->sel++;
+    if ((pressed & BTN_LEFT) && a->sel > 0) a->sel--;
+    if (pressed & (BTN_R1 | BTN_L1)) {
+        a->filter = (a->filter + ((pressed & BTN_R1) ? 1 : 2)) % 3;
+        a->sel = 0;
+        rebuild_view(a);
+        dirty = 1;
+    }
+    if (pressed & BTN_SQUARE) { a->scanning = 1; dirty = 1; }
+    if ((pressed & BTN_CROSS) && a->view_count) { a->modal = MODAL_PLAY; dirty = 1; }
+    if ((pressed & BTN_TRIANGLE) && a->view_count) { a->modal = MODAL_DETAILS; dirty = 1; }
+    if (pressed & BTN_CROSS && !a->view_count) { a->scanning = 1; dirty = 1; }
+
+    if (a->sel != prev_sel) { dirty = 1; a->idle_frames = 0; }
+    else a->idle_frames++;
+    update_scroll_target(a);
+
+    // Smooth carousel scroll.
+    float d = a->scroll_target - a->scroll;
+    if (fabsf(d) > 0.5f) { a->scroll += d * 0.28f; dirty = 1; }
+    else if (d != 0) { a->scroll = a->scroll_target; dirty = 1; }
+
+    // Load the big cover once the selection settles (keeps scrolling snappy on slow USB drives).
+    Game *g = selected(a);
+    int gi = g ? a->view[a->sel] : -1;
+    if (gi != a->cover_for && a->idle_frames >= 8) {
+        image_free(&a->cover);
+        if (g) a->cover = library_load_cover(g, COVER_W, COVER_H);
+        a->cover_for = gi;
+        dirty = 1;
+    }
+    return dirty;
+}
+
+// ------------------------------------------------------------------ drawing
+
+static void draw_header(App *a, Canvas *c, int hh, int mm) {
+    float y = 84;
+    // Logo: a "V" with a dot, then the wordmark.
+    draw_line(c, PAD_X + 4, y - 30, PAD_X + 18, y - 6, 4, C_ACCENT, 1);
+    draw_line(c, PAD_X + 18, y - 6, PAD_X + 32, y - 30, 4, C_ACCENT, 1);
+    fill_circle(c, PAD_X + 18, y - 25, 3, C_ACCENT, 1);
+    draw_text(c, FONT_DISPLAY, 30, PAD_X + 50, y - 6, "VAULT", C_TEXT, 1, 7);
+
+    // Format filter (L1 / R1).
+    float x = PAD_X + 260;
+    x += key_chip(c, x, y - 17, "L1") + 14;
+    for (int i = 0; i < 3; i++) {
+        int n = 0;
+        for (int k = 0; k < a->lib.count; k++)
+            if (i == 0 || (i == 1 && a->lib.games[k].fmt == DISC_ISO) || (i == 2 && a->lib.games[k].fmt == DISC_CSO)) n++;
+        char label[32];
+        snprintf(label, sizeof label, "%s  %d", kFilterNames[i], n);
+        float w = text_width(FONT_BODY, 20, label, 0) + 52;
+        int on = a->filter == i;
+        fill_rrect(c, x, y - 40, w, 46, 23, on ? C_TEXT : 0xFFFFFF, on ? 1 : 0.06f);
+        draw_text(c, FONT_BODY, 20, x + 26, y - 10, label, on ? C_INK : C_SOFT, 1, 0);
+        x += w + 8;
+    }
+    key_chip(c, x + 6, y - 17, "R1");
+
+    // Storage summary + clock on the right.
+    char clock[8], info[96], sz[24];
+    snprintf(clock, sizeof clock, "%02d:%02d", hh, mm);
+    format_size(a->lib.total_bytes, sz, sizeof sz);
+    snprintf(info, sizeof info, "%d %s \xC2\xB7 %s", a->lib.count, a->lib.count == 1 ? "juego" : "juegos", sz);
+    float cw = text_width(FONT_MONO, 24, clock, 0);
+    draw_text(c, FONT_MONO, 24, SCREEN_W - PAD_X - cw, y - 9, clock, C_TEXT, 1, 0);
+    float iw = text_width(FONT_MONO, 18, info, 0);
+    draw_text(c, FONT_MONO, 18, SCREEN_W - PAD_X - cw - 40 - iw, y - 11, info, C_MUTED, 1, 0);
+}
+
+static float draw_button(Canvas *c, float x, float y, const char *label, Glyph g, int primary) {
+    float h = 72, tw = text_width(FONT_DISPLAY, 26, label, 0);
+    float w = tw + 44 + 40 + 20;
+    if (primary) fill_rrect(c, x, y, w, h, 16, C_ACCENT, 1);
+    else { fill_rrect(c, x, y, w, h, 16, 0xFFFFFF, 0.08f); stroke_rrect(c, x, y, w, h, 16, 1.5f, 0xFFFFFF, 0.2f); }
+    if (primary) {
+        // Ink-coloured glyph on the accent button.
+        float cx = x + 40, cy = y + h / 2, s = 8;
+        stroke_circle(c, cx, cy, 17, 2.4f, C_INK, 1);
+        if (g == G_CROSS) { draw_line(c, cx - s, cy - s, cx + s, cy + s, 2.6f, C_INK, 1); draw_line(c, cx + s, cy - s, cx - s, cy + s, 2.6f, C_INK, 1); }
+        else if (g == G_SQUARE) stroke_rrect(c, cx - s, cy - s, s * 2, s * 2, 1, 2.6f, C_INK, 1);
+    } else {
+        ps_glyph(c, g, x + 40, y + h / 2, 18, 0);
+    }
+    draw_text(c, FONT_DISPLAY, 26, x + 72, y + h / 2 + 9, label, primary ? C_INK : C_TEXT, 1, 0);
+    return w;
+}
+
+static void draw_cover(App *a, Canvas *c, Game *g) {
+    shadow_rrect(c, COVER_X, COVER_Y + 26, COVER_W, COVER_H, 28, 70, 0.55f);
+    int gi = a->view[a->sel];
+    if (a->cover.px && a->cover_for == gi) {
+        fill_rrect(c, COVER_X, COVER_Y, COVER_W, COVER_H, 28, g->c1, 1);
+        draw_image_rounded(c, &a->cover, COVER_X, COVER_Y, 28, 1);
+    } else if (g->tile.px && a->cover_for != gi) {
+        // Still settling: show the tile art stretched softly as a placeholder.
+        fallback_art(c, COVER_X, COVER_Y, COVER_W, COVER_H, 28, mix(g->c1, C_BG, 0.35f), mix(g->c2, C_BG, 0.35f));
+    } else {
+        fallback_art(c, COVER_X, COVER_Y, COVER_W, COVER_H, 28, g->c1, g->c2);
+        char t[160];
+        text_ellipsize(FONT_DISPLAY, 44, g->title, COVER_W - 64, t, sizeof t, -0.5f);
+        draw_text(c, FONT_DISPLAY, 44, COVER_X + 32, COVER_Y + COVER_H - 32, t, C_INK, 1, -0.5f);
+    }
+    // File name tag on the cover.
+    char tag[96];
+    text_ellipsize(FONT_MONO, 15, g->file, COVER_W - 120, tag, sizeof tag, 0);
+    float tw = text_width(FONT_MONO, 15, tag, 0);
+    fill_rrect(c, COVER_X + 24, COVER_Y + 22, tw + 24, 30, 8, C_INK, 0.72f);
+    draw_text(c, FONT_MONO, 15, COVER_X + 36, COVER_Y + 42, tag, C_SOFT, 1, 0);
+}
+
+static void draw_hero(App *a, Canvas *c) {
+    Game *g = selected(a);
+    float x = PAD_X, y = 236;
+    if (!g) {
+        draw_text(c, FONT_MONO, 18, x, y, a->lib.count ? "SIN RESULTADOS EN ESTE FILTRO" : "BIENVENIDO A VAULT", C_ACCENT, 1, 3.6f);
+        draw_text(c, FONT_DISPLAY, 92, x - 4, y + 104, a->lib.count ? "Nada por aqu\xC3\xAD" : "Tu b\xC3\xB3veda est\xC3\xA1 vac\xC3\xAD" "a", C_TEXT, 1, -2.5f);
+        const char *l1 = "Copia tus juegos de PSP (.iso o .cso) a una de estas carpetas:";
+        draw_text(c, FONT_BODY, 26, x, y + 170, l1, C_SOFT, 1, 0);
+        draw_text(c, FONT_MONO, 22, x, y + 214, "/data/vault/PSP/GAME", C_ACCENT, 1, 0);
+        draw_text(c, FONT_BODY, 22, x + 330, y + 214, "disco interno, v\xC3\xAD" "a FTP", C_MUTED, 1, 0);
+        draw_text(c, FONT_MONO, 22, x, y + 252, "USB:/vault/PSP/GAME", C_ACCENT, 1, 0);
+        draw_text(c, FONT_BODY, 22, x + 330, y + 252, "memoria USB en exFAT", C_MUTED, 1, 0);
+        float by = y + 300;
+        fill_rrect(c, x, by, 300, 72, 16, C_ACCENT, 1);
+        float cx = x + 40, cy = by + 36;
+        stroke_circle(c, cx, cy, 17, 2.4f, C_INK, 1);
+        draw_line(c, cx - 8, cy - 8, cx + 8, cy + 8, 2.6f, C_INK, 1);
+        draw_line(c, cx + 8, cy - 8, cx - 8, cy + 8, 2.6f, C_INK, 1);
+        draw_text(c, FONT_DISPLAY, 26, x + 72, cy + 9, "Escanear", C_INK, 1, 0);
+        fallback_art(c, COVER_X, COVER_Y, COVER_W, COVER_H, 28, 0x1B2230, 0x24304A);
+        draw_text(c, FONT_DISPLAY, 44, COVER_X + 32, COVER_Y + COVER_H - 32, "PSP \xC2\xB7 ISO \xC2\xB7 CSO", C_TEXT, 0.9f, -0.5f);
+        return;
+    }
+
+    char label[96];
+    if (g->is_psp && g->disc_id[0]) snprintf(label, sizeof label, "PSP \xC2\xB7 %s \xC2\xB7 %s", g->disc_id, g->source);
+    else snprintf(label, sizeof label, "%s \xC2\xB7 %s", g->is_psp ? "PSP" : "DISCO", g->source);
+    for (char *p = label; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
+    draw_text(c, FONT_MONO, 18, x, y, label, C_ACCENT, 1, 3.6f);
+
+    // Title: up to two lines at 92px; long titles drop to 72px.
+    char lines[2][160];
+    float size = 92;
+    int n = wrap_text(FONT_DISPLAY, size, g->title, 1000, lines, 2);
+    if (n == 2 && text_width(FONT_DISPLAY, size, lines[1], -2.5f) > 1000) { size = 72; n = wrap_text(FONT_DISPLAY, size, g->title, 1000, lines, 2); }
+    float ty = y + size * 1.08f;
+    for (int i = 0; i < n; i++) { draw_text(c, FONT_DISPLAY, size, x - 4, ty, lines[i], C_TEXT, 1, -2.5f); ty += size * 0.98f; }
+
+    // Badges.
+    float by = ty - size * 0.98f + 40, bx = x;
+    char sz[24], ratio[32];
+    bx += pill(c, bx, by, fmt_name(g->fmt), fmt_color(g->fmt), 1, C_INK, FONT_MONO, 18, 16, 40) + 12;
+    bx += pill(c, bx, by, g->is_psp ? "PSP" : "Desconocido", 0xFFFFFF, 0.08f, C_SOFT, FONT_MONO, 18, 16, 40) + 12;
+    format_size(g->image_size, sz, sizeof sz);
+    bx += pill(c, bx, by, sz, 0xFFFFFF, 0.08f, C_SOFT, FONT_MONO, 18, 16, 40) + 12;
+    if (g->fmt == DISC_CSO && g->image_size) {
+        snprintf(ratio, sizeof ratio, "%d%% comprimido", (int)(100 - g->file_size * 100 / g->image_size));
+        pill(c, bx, by, ratio, 0xFFFFFF, 0.08f, C_SOFT, FONT_MONO, 18, 16, 40);
+    }
+
+    float btn_y = by + 72;
+    float bw = draw_button(c, x, btn_y, "Jugar", G_CROSS, 1);
+    draw_button(c, x + bw + 16, btn_y, "Detalles", G_TRIANGLE, 0);
+
+    draw_cover(a, c, g);
+}
+
+static void draw_tile(Canvas *c, Game *g, float x, float y, int on) {
+    if (on) {
+        shadow_rrect(c, x, y + 18, TILE_W, TILE_H, 18, 44, 0.6f);
+        stroke_rrect(c, x - 10, y - 10, TILE_W + 20, TILE_H + 20, 26, 6, C_ACCENT, 0.33f);
+    }
+    if (g->tile.px) {
+        fill_rrect(c, x, y, TILE_W, TILE_H, 18, mix(g->c1, C_BG, 0.6f), 1);
+        draw_image_rounded(c, &g->tile, (int)x, (int)y, 18, on ? 1 : 0.82f);
+    } else {
+        fallback_art(c, x, y, TILE_W, TILE_H, 18, g->c1, g->c2);
+        char t[160];
+        text_ellipsize(FONT_DISPLAY, 24, g->title, TILE_W - 32, t, sizeof t, 0);
+        draw_text(c, FONT_DISPLAY, 24, x + 16, y + TILE_H - 18, t, C_INK, 1, 0);
+        if (!on) fill_rrect(c, x, y, TILE_W, TILE_H, 18, C_BG, 0.18f);
+    }
+    if (on) stroke_rrect(c, x - 2, y - 2, TILE_W + 4, TILE_H + 4, 20, 4, C_TEXT, 1);
+    pill(c, x + 12, y + 12, fmt_name(g->fmt), C_INK, 0.85f, fmt_color(g->fmt), FONT_MONO, 14, 9, 26);
+
+    char t[160];
+    text_ellipsize(FONT_BODY, 21, g->title, TILE_W, t, sizeof t, 0);
+    draw_text(c, FONT_BODY, 21, x + 2, y + TILE_H + 40, t, on ? C_TEXT : C_MUTED, 1, 0);
+}
+
+static void draw_library(App *a, Canvas *c) {
+    float y = 668;
+    draw_text(c, FONT_DISPLAY, 32, PAD_X, y, "Tu biblioteca", C_TEXT, 1, 0);
+    char sub[96];
+    snprintf(sub, sizeof sub, "%d de %d \xC2\xB7 %s", a->view_count ? a->sel + 1 : 0, a->view_count, kFilterNames[a->filter]);
+    draw_text(c, FONT_MONO, 18, PAD_X + 248, y - 2, sub, C_MUTED, 1, 0);
+
+    if (!a->view_count) {
+        float x = PAD_X;
+        for (int i = 0; i < 4; i++) {
+            float tx = x + i * (TILE_W + TILE_GAP);
+            stroke_rrect(c, tx, TILE_Y, TILE_W, TILE_H, 18, 2, 0xFFFFFF, i == 0 ? 0.28f : 0.1f);
+        }
+        draw_text(c, FONT_BODY, 22, x + 44, TILE_Y + TILE_H / 2 + 8, "Sin juegos todav\xC3\xAD" "a", C_MUTED, 1, 0);
+        return;
+    }
+    for (int i = 0; i < a->view_count; i++) {
+        float x = PAD_X + i * (TILE_W + TILE_GAP) - a->scroll;
+        if (x > SCREEN_W || x + TILE_W < 0) continue;
+        int on = i == a->sel;
+        draw_tile(c, &a->lib.games[a->view[i]], x, on ? TILE_Y - 10 : TILE_Y, on);
+    }
+    // Scroll hints.
+    if (a->scroll > 1) fill_triangle(c, 48, TILE_Y + 70, 64, TILE_Y + 58, 64, TILE_Y + 82, C_TEXT, 0.6f);
+    float last = PAD_X + (a->view_count - 1) * (TILE_W + TILE_GAP) - a->scroll + TILE_W;
+    if (last > SCREEN_W - 40) fill_triangle(c, SCREEN_W - 48, TILE_Y + 70, SCREEN_W - 64, TILE_Y + 58, SCREEN_W - 64, TILE_Y + 82, C_TEXT, 0.6f);
+}
+
+static void draw_footer(App *a, Canvas *c) {
+    float y = 1000;
+    fill_rect(c, 0, (int)y, SCREEN_W, SCREEN_H - (int)y, C_BG, 0.72f);
+    fill_rect(c, 0, (int)y, SCREEN_W, 1, 0xFFFFFF, 0.08f);
+    float cy = y + 40;
+    draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "VAULT " VAULT_VERSION " \xC2\xB7 Homebrew \xC2\xB7 Fase 1", C_MUTED, 1, 0);
+
+    struct { Glyph g; const char *t; } hints[] = {
+        { G_CROSS, a->view_count ? "Jugar" : "Escanear" }, { G_TRIANGLE, "Detalles" }, { G_SQUARE, "Escanear" },
+    };
+    int nh = a->view_count ? 3 : 1;
+    if (a->modal != MODAL_NONE) { hints[0].g = G_CIRCLE; hints[0].t = "Cerrar"; nh = 1; }
+    float x = SCREEN_W - PAD_X;
+    for (int i = nh - 1; i >= 0; i--) {
+        float tw = text_width(FONT_BODY, 20, hints[i].t, 0);
+        x -= tw;
+        draw_text(c, FONT_BODY, 20, x, cy + 7, hints[i].t, C_MUTED, 1, 0);
+        x -= 24;
+        ps_glyph(c, hints[i].g, x, cy, 13, 0);
+        x -= 13 + 40;
+    }
+}
+
+static void draw_modal(App *a, Canvas *c) {
+    Game *g = selected(a);
+    if (!g) return;
+    fill_rect(c, 0, 0, SCREEN_W, SCREEN_H, 0x000000, 0.62f);
+    float w = 1000, h = a->modal == MODAL_PLAY ? 440 : 560, x = (SCREEN_W - w) / 2, y = (SCREEN_H - h) / 2 - 20;
+    shadow_rrect(c, x, y + 30, w, h, 28, 80, 0.7f);
+    fill_rrect(c, x, y, w, h, 28, C_PANEL, 1);
+    stroke_rrect(c, x, y, w, h, 28, 1.5f, 0xFFFFFF, 0.1f);
+    float px = x + 56, py = y + 84;
+
+    if (a->modal == MODAL_PLAY) {
+        draw_text(c, FONT_MONO, 18, px, py - 20, "MOTOR PSP", C_ACCENT, 1, 3.6f);
+        draw_text(c, FONT_DISPLAY, 52, px - 2, py + 44, "Muy pronto: a jugar", C_TEXT, 1, -1);
+        draw_text(c, FONT_BODY, 24, px, py + 104, "Esta es la fase 1 de VAULT: tu biblioteca ya se lee y se ordena.", C_SOFT, 1, 0);
+        draw_text(c, FONT_BODY, 24, px, py + 140, "El emulador (basado en PPSSPP) se integra en la fase 2.", C_SOFT, 1, 0);
+        char p[160];
+        text_ellipsize(FONT_MONO, 18, g->path, w - 112, p, sizeof p, 0);
+        fill_rrect(c, px, py + 176, w - 112, 52, 12, 0xFFFFFF, 0.05f);
+        draw_text(c, FONT_MONO, 18, px + 18, py + 208, p, C_MUTED, 1, 0);
+        float bx = px, by = y + h - 104;
+        fill_rrect(c, bx, by, 250, 64, 16, 0xFFFFFF, 0.1f);
+        ps_glyph(c, G_CIRCLE, bx + 36, by + 32, 16, 0);
+        draw_text(c, FONT_DISPLAY, 24, bx + 66, by + 40, "Entendido", C_TEXT, 1, 0);
+        return;
+    }
+
+    draw_text(c, FONT_MONO, 18, px, py - 20, "DETALLES", C_ACCENT, 1, 3.6f);
+    char t[160];
+    text_ellipsize(FONT_DISPLAY, 48, g->title, w - 112, t, sizeof t, -1);
+    draw_text(c, FONT_DISPLAY, 48, px - 2, py + 40, t, C_TEXT, 1, -1);
+    char disk[24], real[24], comp[32], path[160];
+    format_size(g->file_size, disk, sizeof disk);
+    format_size(g->image_size, real, sizeof real);
+    if (g->fmt == DISC_CSO && g->image_size) snprintf(comp, sizeof comp, "%d%% ahorrado", (int)(100 - g->file_size * 100 / g->image_size));
+    else snprintf(comp, sizeof comp, "Sin compresi\xC3\xB3n");
+    text_ellipsize(FONT_MONO, 20, g->path, w - 112 - 220, path, sizeof path, 0);
+    const char *rows[][2] = {
+        { "Archivo", path },
+        { "Formato", g->fmt == DISC_CSO ? "CSO (ISO comprimido)" : "ISO" },
+        { "ID de disco", g->disc_id[0] ? g->disc_id : "\xE2\x80\x94" },
+        { "En disco", disk },
+        { "Tama\xC3\xB1o real", real },
+        { "Compresi\xC3\xB3n", comp },
+        { "Origen", g->source },
+    };
+    float ry = py + 100;
+    for (int i = 0; i < 7; i++) {
+        draw_text(c, FONT_BODY, 20, px, ry, rows[i][0], C_MUTED, 1, 0);
+        draw_text(c, FONT_MONO, 20, px + 220, ry, rows[i][1], C_TEXT, 1, 0);
+        ry += 44;
+    }
+}
+
+void app_draw(App *a, Canvas *c, int hh, int mm) {
+    Game *g = selected(a);
+    int gi = g ? a->view[a->sel] : -1;
+    if (a->bg_for != gi) {
+        if (g) paint_glow_background(&a->bg, C_BG, g->c1, 0.30f, g->c2, 0.24f);
+        else paint_glow_background(&a->bg, C_BG, 0x1B6CFF, 0.22f, C_ACCENT, 0.16f);
+        a->bg_for = gi;
+    }
+    canvas_blit(c, &a->bg);
+    draw_header(a, c, hh, mm);
+    draw_hero(a, c);
+    draw_library(a, c);
+    draw_footer(a, c);
+    if (a->modal != MODAL_NONE) { draw_modal(a, c); draw_footer(a, c); }
+}
+
+void app_draw_scanning(Canvas *c, const Canvas *bg) {
+    canvas_blit(c, bg);
+    fill_rect(c, 0, 0, SCREEN_W, SCREEN_H, 0, 0.5f);
+    const char *t = "Escaneando tus juegos\xE2\x80\xA6";
+    float w = text_width(FONT_DISPLAY, 44, t, -1);
+    draw_text(c, FONT_DISPLAY, 44, (SCREEN_W - w) / 2, SCREEN_H / 2, t, C_TEXT, 1, -1);
+}

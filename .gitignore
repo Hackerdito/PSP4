@@ -1,0 +1,8 @@
+build/
+sdk/
+.sdk-src/
+testdata/
+eboot.bin
+pkg.gp4
+sce_sys/param.sfo
+*.pkg
