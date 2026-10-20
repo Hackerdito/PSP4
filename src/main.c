@@ -43,6 +43,14 @@ int main(void) {
         prev = held;
 
         if (app_update(a, pressed, held)) dirty = 1;
+        if (a->launch_request) {
+            a->launch_request = 0;
+            app_draw_launching(a, &frame);
+            plat_present(&frame);
+            int rc = plat_launch_engine(a->lib.games[a->view[a->sel]].path);
+            if (rc != 0) app_launch_failed(a, rc);
+            dirty = 1;
+        }
         if (a->scanning) {
             app_draw_scanning(&frame, &a->bg);
             plat_present(&frame);

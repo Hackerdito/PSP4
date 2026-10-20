@@ -21,6 +21,12 @@ void plat_idle(void);                 // sleeps ~one frame
 void plat_clock(int *hh, int *mm);    // local time
 void plat_log(const char *fmt, ...);
 
+// PSP engine: M33 (PPSSPP for PS4, https://github.com/iHaiDeeZ/M33), installed as its own app.
+#define ENGINE_TITLE_ID "MRCH00033"
+int plat_engine_installed(void);
+// Starts the engine with the game's path as its argument. Returns 0, or the system's error code.
+int plat_launch_engine(const char *game_path);
+
 #ifdef VAULT_HOST
 int plat_host_done(void);
 #endif

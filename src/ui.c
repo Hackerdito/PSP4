@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v0.1"
+#define VAULT_VERSION "v0.2"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
@@ -190,7 +190,11 @@ int app_update(App *a, uint32_t pressed, uint32_t held) {
         dirty = 1;
     }
     if (pressed & BTN_SQUARE) { a->scanning = 1; dirty = 1; }
-    if ((pressed & BTN_CROSS) && a->view_count) { a->modal = MODAL_PLAY; dirty = 1; }
+    if ((pressed & BTN_CROSS) && a->view_count) {
+        if (plat_engine_installed()) a->launch_request = 1;
+        else a->modal = MODAL_NO_ENGINE;
+        dirty = 1;
+    }
     if ((pressed & BTN_TRIANGLE) && a->view_count) { a->modal = MODAL_DETAILS; dirty = 1; }
     if (pressed & BTN_CROSS && !a->view_count) { a->scanning = 1; dirty = 1; }
 
@@ -407,7 +411,7 @@ static void draw_footer(App *a, Canvas *c) {
     fill_rect(c, 0, (int)y, SCREEN_W, SCREEN_H - (int)y, C_BG, 0.72f);
     fill_rect(c, 0, (int)y, SCREEN_W, 1, 0xFFFFFF, 0.08f);
     float cy = y + 40;
-    draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "VAULT " VAULT_VERSION " \xC2\xB7 Homebrew \xC2\xB7 Fase 1", C_MUTED, 1, 0);
+    draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "VAULT " VAULT_VERSION " \xC2\xB7 Motor M33 \xC2\xB7 Fase 2", C_MUTED, 1, 0);
 
     struct { Glyph g; const char *t; } hints[] = {
         { G_CROSS, a->view_count ? "Jugar" : "Escanear" }, { G_TRIANGLE, "Detalles" }, { G_SQUARE, "Escanear" },
@@ -429,21 +433,32 @@ static void draw_modal(App *a, Canvas *c) {
     Game *g = selected(a);
     if (!g) return;
     fill_rect(c, 0, 0, SCREEN_W, SCREEN_H, 0x000000, 0.62f);
-    float w = 1000, h = a->modal == MODAL_PLAY ? 440 : 560, x = (SCREEN_W - w) / 2, y = (SCREEN_H - h) / 2 - 20;
+    float w = 1000, h = a->modal == MODAL_DETAILS ? 560 : 440, x = (SCREEN_W - w) / 2, y = (SCREEN_H - h) / 2 - 20;
     shadow_rrect(c, x, y + 30, w, h, 28, 80, 0.7f);
     fill_rrect(c, x, y, w, h, 28, C_PANEL, 1);
     stroke_rrect(c, x, y, w, h, 28, 1.5f, 0xFFFFFF, 0.1f);
     float px = x + 56, py = y + 84;
 
-    if (a->modal == MODAL_PLAY) {
+    if (a->modal == MODAL_NO_ENGINE || a->modal == MODAL_LAUNCH_ERROR) {
+        char l1[160], l2[160], code[96];
+        const char *title;
+        if (a->modal == MODAL_NO_ENGINE) {
+            title = "Falta el motor PSP";
+            snprintf(l1, sizeof l1, "VAULT juega con M33 (PPSSPP para PS4). Inst\xC3\xA1lalo una vez:");
+            snprintf(l2, sizeof l2, "descarga M33 v1.03 o m\xC3\xA1s nuevo e inst\xC3\xA1lalo con el Package Installer.");
+            snprintf(code, sizeof code, "github.com/iHaiDeeZ/M33/releases");
+        } else {
+            title = "No se pudo abrir M33";
+            snprintf(l1, sizeof l1, "La consola rechaz\xC3\xB3 el lanzamiento. Abre M33 desde el men\xC3\xBA:");
+            snprintf(l2, sizeof l2, "si tu juego est\xC3\xA1 en /data/March33/games aparece en su lista.");
+            snprintf(code, sizeof code, "C\xC3\xB3" "digo 0x%08X \xC2\xB7 %s", (unsigned)a->launch_error, ENGINE_TITLE_ID);
+        }
         draw_text(c, FONT_MONO, 18, px, py - 20, "MOTOR PSP", C_ACCENT, 1, 3.6f);
-        draw_text(c, FONT_DISPLAY, 52, px - 2, py + 44, "Muy pronto: a jugar", C_TEXT, 1, -1);
-        draw_text(c, FONT_BODY, 24, px, py + 104, "Esta es la fase 1 de VAULT: tu biblioteca ya se lee y se ordena.", C_SOFT, 1, 0);
-        draw_text(c, FONT_BODY, 24, px, py + 140, "El emulador (basado en PPSSPP) se integra en la fase 2.", C_SOFT, 1, 0);
-        char p[160];
-        text_ellipsize(FONT_MONO, 18, g->path, w - 112, p, sizeof p, 0);
+        draw_text(c, FONT_DISPLAY, 52, px - 2, py + 44, title, C_TEXT, 1, -1);
+        draw_text(c, FONT_BODY, 24, px, py + 104, l1, C_SOFT, 1, 0);
+        draw_text(c, FONT_BODY, 24, px, py + 140, l2, C_SOFT, 1, 0);
         fill_rrect(c, px, py + 176, w - 112, 52, 12, 0xFFFFFF, 0.05f);
-        draw_text(c, FONT_MONO, 18, px + 18, py + 208, p, C_MUTED, 1, 0);
+        draw_text(c, FONT_MONO, 18, px + 18, py + 208, code, C_MUTED, 1, 0);
         float bx = px, by = y + h - 104;
         fill_rrect(c, bx, by, 250, 64, 16, 0xFFFFFF, 0.1f);
         ps_glyph(c, G_CIRCLE, bx + 36, by + 32, 16, 0);
@@ -500,4 +515,33 @@ void app_draw_scanning(Canvas *c, const Canvas *bg) {
     const char *t = "Escaneando tus juegos\xE2\x80\xA6";
     float w = text_width(FONT_DISPLAY, 44, t, -1);
     draw_text(c, FONT_DISPLAY, 44, (SCREEN_W - w) / 2, SCREEN_H / 2, t, C_TEXT, 1, -1);
+}
+
+void app_launch_failed(App *a, int code) {
+    a->launch_error = code;
+    a->modal = MODAL_LAUNCH_ERROR;
+}
+
+// Full-screen hand-off card shown while the console switches to M33.
+void app_draw_launching(App *a, Canvas *c) {
+    Game *g = selected(a);
+    if (!g) return;
+    canvas_blit(c, &a->bg);
+    fill_rect(c, 0, 0, SCREEN_W, SCREEN_H, C_BG, 0.55f);
+    float cw = COVER_W, ch = COVER_H, cx = (SCREEN_W - cw) / 2, cy = 270;
+    shadow_rrect(c, cx, cy + 30, cw, ch, 28, 90, 0.7f);
+    int gi = a->view[a->sel];
+    if (a->cover.px && a->cover_for == gi && a->cover.w == COVER_W) {
+        // Cover is 644x362; centre it inside the card.
+        draw_image_rounded(c, &a->cover, (int)cx, (int)cy, 28, 1);
+    } else {
+        fallback_art(c, cx, cy, cw, ch, 28, g->c1, g->c2);
+    }
+    char t[160];
+    text_ellipsize(FONT_DISPLAY, 64, g->title, SCREEN_W - 200, t, sizeof t, -1.5f);
+    float tw = text_width(FONT_DISPLAY, 64, t, -1.5f);
+    draw_text(c, FONT_DISPLAY, 64, (SCREEN_W - tw) / 2, cy + ch + 130, t, C_TEXT, 1, -1.5f);
+    const char *sub = "Abriendo el motor PSP\xE2\x80\xA6";
+    float sw = text_width(FONT_MONO, 20, sub, 3);
+    draw_text(c, FONT_MONO, 20, (SCREEN_W - sw) / 2, cy + ch + 186, sub, C_ACCENT, 1, 3);
 }

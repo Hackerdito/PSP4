@@ -94,3 +94,11 @@ int plat_host_done(void) {
     if (once && g_frame >= 30) return 1;
     return g_frame > 180;
 }
+
+int plat_engine_installed(void) { return getenv("VAULT_NO_ENGINE") == NULL; }
+int plat_launch_engine(const char *game_path) {
+    printf("[VAULT] would launch %s with %s\n", ENGINE_TITLE_ID, game_path);
+    shot("04_abriendo");
+    const char *fail = getenv("VAULT_LAUNCH_FAIL");
+    return fail ? (int)strtoul(fail, NULL, 16) : 0;
+}

@@ -3,7 +3,7 @@
 #include "gfx.h"
 #include "library.h"
 
-typedef enum { MODAL_NONE = 0, MODAL_PLAY, MODAL_DETAILS } Modal;
+typedef enum { MODAL_NONE = 0, MODAL_PLAY, MODAL_DETAILS, MODAL_NO_ENGINE, MODAL_LAUNCH_ERROR } Modal;
 
 typedef struct {
     Library lib;
@@ -19,6 +19,8 @@ typedef struct {
     int cover_for;
     int idle_frames;
     int scanning;
+    int launch_request;      // set by Cross; main.c starts the engine
+    int launch_error;
 } App;
 
 void app_init(App *a);
@@ -27,3 +29,6 @@ void app_rescan(App *a);
 int app_update(App *a, uint32_t pressed, uint32_t held);
 void app_draw(App *a, Canvas *c, int hh, int mm);
 void app_draw_scanning(Canvas *c, const Canvas *bg);
+void app_draw_launching(App *a, Canvas *c);
+// Called by main.c with the result of plat_launch_engine.
+void app_launch_failed(App *a, int code);

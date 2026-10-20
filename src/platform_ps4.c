@@ -2,6 +2,7 @@
 #include "platform.h"
 
 #include <signal.h>
+#include <sys/stat.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -43,6 +44,7 @@ static int g_fb_idx = 0;
 static int64_t g_frame = 0;
 static OrbisKernelEqueue g_flip_queue;
 static int g_pad = -1;
+static int32_t g_user = -1;
 
 const char *plat_app_dir(void) { return "/app0"; }
 
@@ -98,9 +100,8 @@ int plat_init(void) {
 
     OrbisUserServiceInitializeParams up = { .priority = 700 };
     sceUserServiceInitialize(&up);
-    int32_t user = -1;
-    sceUserServiceGetInitialUser(&user);
-    if (scePadInit() == 0) g_pad = scePadOpen(user, 0, 0, NULL);
+    sceUserServiceGetInitialUser(&g_user);
+    if (scePadInit() == 0) g_pad = scePadOpen(g_user, 0, 0, NULL);
 
     if (!video_init()) { plat_log("video init failed"); return 0; }
     escape_sandbox();
@@ -161,4 +162,41 @@ void plat_clock(int *hh, int *mm) {
     gmtime_r(&local, &t);
     *hh = t.tm_hour;
     *mm = t.tm_min;
+}
+
+// ---- PSP engine (M33) ------------------------------------------------------
+
+#define ENGINE_LAUNCH_FILE "/data/March33/launch.txt"
+
+int plat_engine_installed(void) {
+    struct stat st;
+    return stat("/user/app/" ENGINE_TITLE_ID "/app.pkg", &st) == 0 ||
+           stat("/system_data/priv/appmeta/" ENGINE_TITLE_ID "/param.sfo", &st) == 0;
+}
+
+int plat_launch_engine(const char *game_path) {
+    // M33 reads the game from its first argument; launch.txt covers consoles where arguments
+    // don't reach the app (see engine/m33-launch-args.patch).
+    mkdir("/data/March33", 0777);
+    FILE *f = fopen(ENGINE_LAUNCH_FILE, "w");
+    if (f) { fprintf(f, "%s\n", game_path); fclose(f); }
+
+    const char *argv[] = { game_path, NULL };
+    LncAppParam p;
+    memset(&p, 0, sizeof p);
+    p.size = sizeof p;
+    p.user_id = (uint32_t)g_user;
+    p.app_opt = 0;
+    p.crash_report = 0;
+    p.LaunchAppCheck_flag = LaunchApp_SkipSystemUpdate;
+    int rc = sceLncUtilLaunchApp(ENGINE_TITLE_ID, argv, &p);
+    plat_log("launch %s (%s): 0x%08x", ENGINE_TITLE_ID, game_path, (unsigned)rc);
+    if (rc < 0) {
+        int rc2 = sceSystemServiceLaunchApp(ENGINE_TITLE_ID, argv, &p);
+        plat_log("sceSystemServiceLaunchApp: 0x%08x", (unsigned)rc2);
+        if (rc2 >= 0) return 0;
+        remove(ENGINE_LAUNCH_FILE);   // don't let a stale request start a game later
+        return rc;
+    }
+    return 0;
 }

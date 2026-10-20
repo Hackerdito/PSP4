@@ -11,10 +11,15 @@
 #ifdef VAULT_HOST
 const char *const kGameDirs[] = { "testdata/data/vault/PSP/GAME", "testdata/usb0/vault/PSP/GAME", NULL };
 #else
-const char *const kGameDirs[] = { "/data/vault/PSP/GAME", "/mnt/usb0/vault/PSP/GAME", "/mnt/usb1/vault/PSP/GAME",
-                                  "/mnt/usb0/PSP/GAME", "/mnt/usb1/PSP/GAME", NULL };
+// M33's own games folder comes first: games there show up in both apps.
+const char *const kGameDirs[] = { "/data/March33/games", "/data/vault/PSP/GAME", "/mnt/usb0/vault/PSP/GAME",
+                                  "/mnt/usb1/vault/PSP/GAME", "/mnt/usb0/PSP/GAME", "/mnt/usb1/PSP/GAME", NULL };
 #endif
-const char *const kGameDirLabels[] = { "Interno", "USB0", "USB1", "USB0", "USB1", NULL };
+#ifdef VAULT_HOST
+const char *const kGameDirLabels[] = { "Interno", "USB0", NULL };
+#else
+const char *const kGameDirLabels[] = { "Interno", "Interno", "USB0", "USB1", "USB0", "USB1", NULL };
+#endif
 
 static int ends_with_ci(const char *s, const char *ext) {
     size_t n = strlen(s), e = strlen(ext);

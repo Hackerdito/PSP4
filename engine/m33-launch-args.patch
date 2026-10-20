@@ -1,0 +1,38 @@
+diff --git a/ps4/PS4Main.cpp b/ps4/PS4Main.cpp
+index e1a4465..b7f0afc 100644
+--- a/ps4/PS4Main.cpp
++++ b/ps4/PS4Main.cpp
+@@ -165,9 +165,32 @@ int main(int argc, char *argv[]) {
+ 		Trace("L1 held: not starting in the XMB");
+ 	TimeInit();
+ 
+-	// No command line on the console (argv[0] is the eboot).
++	// No command line on the console (argv[0] is the eboot), except when another app starts M33 with
++	// a game: a launcher (e.g. VAULT) passes its path as an argument to sceLncUtilLaunchApp and also
++	// leaves it in /data/March33/launch.txt, read once and removed, in case the arguments don't arrive.
+ 	CommandLineOptions cmdLineOptions;
+ 	cmdLineOptions.fullscreen = true;
++	for (int i = 1; i < argc; i++) {
++		if (argv[i] && argv[i][0] == '/') {
++			cmdLineOptions.bootFilenames.push_back(argv[i]);
++			break;
++		}
++	}
++	const std::string launchFile = std::string(kDataRoot) + "/launch.txt";
++	if (FILE *f = fopen(launchFile.c_str(), "r")) {
++		char line[1024]{};
++		if (cmdLineOptions.bootFilenames.empty() && fgets(line, sizeof(line), f)) {
++			std::string path(line);
++			while (!path.empty() && (path.back() == '\n' || path.back() == '\r' || path.back() == ' '))
++				path.pop_back();
++			if (!path.empty() && path[0] == '/' && access(path.c_str(), F_OK) == 0)
++				cmdLineOptions.bootFilenames.push_back(path);
++		}
++		fclose(f);
++		remove(launchFile.c_str());
++	}
++	if (!cmdLineOptions.bootFilenames.empty())
++		Trace("launched with a game: " + cmdLineOptions.bootFilenames[0]);
+ 
+ 	g_display.pixel_xres = ps4wsi::kWidth;
+ 	g_display.pixel_yres = ps4wsi::kHeight;

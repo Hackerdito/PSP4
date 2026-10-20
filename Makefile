@@ -29,7 +29,7 @@ OBJS        := $(patsubst src/%.c,$(BUILD)/%.o,$(PS4_SRCS))
 CFLAGS      := --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -O2 -Wall -Wno-unused-function \
                -isysroot $(TOOLCHAIN) -isystem $(TOOLCHAIN)/include -Ithird_party
 LDFLAGS     := -m elf_x86_64 -pie --script $(TOOLCHAIN)/link.x --eh-frame-hdr --gc-sections -L$(TOOLCHAIN)/lib \
-               -lc -lm -lkernel -lSceVideoOut -lScePad -lSceUserService -lSceSystemService $(TOOLCHAIN)/lib/crt1.o
+               -lc -lm -lkernel -lSceVideoOut -lScePad -lSceUserService -lSceSystemService -lSceLncUtil $(TOOLCHAIN)/lib/crt1.o
 
 PKG         := $(CONTENT_ID).pkg
 
