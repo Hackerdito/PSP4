@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Generates sce_sys/pic1.png (1920x1080), the background the PS4 menu shows behind SAMPSP4.
+"""Old generated background (no longer used: sce_sys/pic1.png is now the user's art, from pic1-source.png).
+Generates sce_sys/pic1.png (1920x1080), the background the PS4 menu shows behind SAMPSP4.
 
 The app icon (sce_sys/icon0.png) is the owner's artwork (source: sce_sys/icon-source.png)."""
 import os
