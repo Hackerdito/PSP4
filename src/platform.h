@@ -28,6 +28,12 @@ void plat_log(const char *fmt, ...);
 // Games draw straight into the screen: the buffer for the next frame (SCREEN_W x SCREEN_H XRGB),
 // then plat_frame_end() shows it at the next vsync without waiting (three buffers in turn).
 uint32_t *plat_frame_begin(void);
+// 0 while two frames are still waiting for the screen: a game should skip drawing this one
+// rather than wait (the emulation keeps its speed; the screen just repeats a frame).
+int plat_frame_ready(void);
+// Where a game's frame time goes (the PS1 player logs these).
+typedef struct { uint64_t flip_wait_us, audio_wait_us, underruns, audio_dropped; } PlatStats;
+extern PlatStats plat_stats;
 void plat_frame_end(void);
 int plat_pad(PadState *out);
 // 48 kHz stereo 16-bit. plat_audio_play blocks while the device's queue is full, so a game loop

@@ -248,6 +248,8 @@ uint32_t *plat_frame_begin(void) {
 }
 
 void plat_frame_end(void) { g_last = &g_game_canvas; }
+PlatStats plat_stats;
+int plat_frame_ready(void) { return 1; }
 
 int plat_pad(PadState *out) {
     memset(out, 0, sizeof *out);

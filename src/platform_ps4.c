@@ -165,13 +165,13 @@ uint32_t plat_buttons(void) {
     return out;
 }
 
-// Waits until at most `pending` flips are still queued (giving up after ~0.5 s, so a flip the
-// system never ran can't freeze the app).
+// Waits until at most `pending` flips are still queued (the system's own count; giving up after
+// ~0.5 s, so a flip it never runs can't freeze the app).
 static void wait_flips(int pending) {
     for (int tries = 0; tries < 5; tries++) {
         OrbisVideoOutFlipStatus st;
         sceVideoOutGetFlipStatus(g_video, &st);
-        if (g_frame - (int64_t)st.flipArg <= pending) break;
+        if (st.numFlipPending <= pending) break;
         OrbisKernelEvent ev;
         int count;
         OrbisKernelUseconds timeout = 100000;
@@ -187,9 +187,19 @@ void plat_present(const Canvas *c) {
     wait_flips(0);
 }
 
+PlatStats plat_stats;
+
+int plat_frame_ready(void) {
+    OrbisVideoOutFlipStatus st;
+    sceVideoOutGetFlipStatus(g_video, &st);
+    return st.numFlipPending <= 1;
+}
+
 uint32_t *plat_frame_begin(void) {
     // With three buffers and at most one flip queued, this one is neither shown nor queued.
+    uint64_t t = plat_time_us();
     wait_flips(1);
+    plat_stats.flip_wait_us += plat_time_us() - t;
     return g_fb[g_fb_idx];
 }
 
@@ -243,6 +253,7 @@ static void *audio_thread(void *arg) {
             __atomic_store_n(&g_ring_r, g_ring_r + 256, __ATOMIC_RELEASE);
         } else {
             memset(block, 0, sizeof block);   // underrun: silence
+            plat_stats.underruns++;
         }
         sceAudioOutOutput(g_audio, block);
     }
@@ -263,7 +274,14 @@ int plat_audio_open(void) {
 
 void plat_audio_play(const int16_t *stereo, int frames) {
     if (g_audio < 0) return;
-    while (g_ring_w - __atomic_load_n(&g_ring_r, __ATOMIC_ACQUIRE) > RING_HIGH) sceKernelUsleep(1000);
+    // Wait for room (this is what paces the game), but never more than ~40 ms: if the device
+    // stalls, drop sound instead of slowing the game down.
+    uint64_t t0 = plat_time_us();
+    while (g_ring_w - __atomic_load_n(&g_ring_r, __ATOMIC_ACQUIRE) > RING_HIGH) {
+        if (plat_time_us() - t0 > 40000) { plat_stats.audio_dropped += (uint64_t)frames; plat_stats.audio_wait_us += plat_time_us() - t0; return; }
+        sceKernelUsleep(500);
+    }
+    plat_stats.audio_wait_us += plat_time_us() - t0;
     if (frames > RING_FRAMES - RING_HIGH) frames = RING_FRAMES - RING_HIGH;
     for (int i = 0; i < frames; i++) {
         uint32_t k = (g_ring_w + i) % RING_FRAMES;

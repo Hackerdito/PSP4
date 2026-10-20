@@ -67,6 +67,8 @@ static struct {
     char sys_dir[256], save_dir[256];
     FILE *log;
     uint32_t *target;                  // where video_refresh draws (screen or the menu snapshot)
+    uint64_t dropped;                  // frames not shown because the screen was busy
+    uint64_t blit_us;
 } S;
 
 static void slog(const char *fmt, ...) {
@@ -222,9 +224,12 @@ static void video_refresh(const void *data, unsigned w, unsigned h, size_t pitch
         S.last_w = w; S.last_h = h;
         S.borders_left = 3;
     }
+    if (!plat_frame_ready()) { S.dropped++; return; }   // screen still busy: skip, don't wait
     uint32_t *fb = plat_frame_begin();
     if (S.borders_left > 0) { clear_bars(fb); S.borders_left--; }
+    uint64_t t = plat_time_us();
     blit_frame(fb);
+    S.blit_us += plat_time_us() - t;
     plat_frame_end();
 }
 
@@ -512,9 +517,31 @@ int ps1_run(const char *path) {
     uint64_t last_card = plat_time_us();
     uint32_t prev = 0;
     int frames = 0;
+    // Performance, logged every 5 s: where each frame's time goes.
+    uint64_t perf_t = plat_time_us(), run_us = 0;
+    int perf_frames = 0;
+    PlatStats ps0 = plat_stats;
+    uint64_t blit0 = S.blit_us, drop0 = S.dropped;
     for (;;) {
+        uint64_t r0 = plat_time_us();
         CORE(retro_run)();
+        run_us += plat_time_us() - r0;
         frames++;
+        perf_frames++;
+        uint64_t pt = plat_time_us();
+        if (pt - perf_t >= 5000000) {
+            double secs = (pt - perf_t) / 1e6, n = perf_frames ? perf_frames : 1;
+            double aw = (plat_stats.audio_wait_us - ps0.audio_wait_us) / 1000.0 / n;
+            double fw = (plat_stats.flip_wait_us - ps0.flip_wait_us) / 1000.0 / n;
+            double bl = (S.blit_us - blit0) / 1000.0 / n;
+            double emu = run_us / 1000.0 / n - aw - fw - bl;
+            slog("perf: %.1f fps | emu %.1f ms | imagen %.1f ms | espera audio %.1f ms | espera pantalla %.1f ms | "
+                 "sin mostrar %llu | huecos audio %llu | audio tirado %llu",
+                 perf_frames / secs, emu, bl, aw, fw, (unsigned long long)(S.dropped - drop0),
+                 (unsigned long long)(plat_stats.underruns - ps0.underruns),
+                 (unsigned long long)(plat_stats.audio_dropped - ps0.audio_dropped));
+            perf_t = pt; run_us = 0; perf_frames = 0; ps0 = plat_stats; blit0 = S.blit_us; drop0 = S.dropped;
+        }
         uint32_t b = S.pad.buttons;
         uint32_t pressed = b & ~prev;
         prev = b;
@@ -530,6 +557,11 @@ int ps1_run(const char *path) {
         }
         uint64_t now = plat_time_us();
         if (now - last_card > 5000000) { card_save(0); last_card = now; }
+    }
+    if (perf_frames > 30) {
+        double n = perf_frames, secs = (plat_time_us() - perf_t) / 1e6;
+        slog("perf (al salir): %.1f fps | %.1f ms por cuadro | sin mostrar %llu", n / secs, run_us / 1000.0 / n,
+             (unsigned long long)(S.dropped - drop0));
     }
     slog("quit after %d frames", frames);
     card_save(0);
