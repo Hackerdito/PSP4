@@ -20,6 +20,8 @@ void plat_present(const Canvas *c);   // shows the canvas and waits for vsync
 void plat_idle(void);                 // sleeps ~one frame
 void plat_clock(int *hh, int *mm);    // local time
 void plat_log(const char *fmt, ...);
+// Releases the screen and controller (before the built-in engine takes them over).
+void plat_shutdown(void);
 
 // PSP engine: M33 (PPSSPP for PS4, https://github.com/iHaiDeeZ/M33), installed as its own app.
 #define ENGINE_TITLE_ID "MRCH00033"

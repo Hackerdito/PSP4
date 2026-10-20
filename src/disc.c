@@ -6,8 +6,8 @@
 #include <string.h>
 #include <ctype.h>
 
-// Raw-deflate decoder from stb_image (compiled in gfx.c).
-extern int stbi_zlib_decode_noheader_buffer(char *obuffer, int olen, const char *ibuffer, int ilen);
+// Raw-deflate decoder (stb_image, wrapped in gfx.c).
+extern int vault_inflate_raw(char *out, int out_len, const char *in, int in_len);
 
 #define SECTOR 2048
 
@@ -103,7 +103,7 @@ static int cso_load_block(Disc *d, uint32_t b) {
         if (n < d->block_size) memset(d->bbuf + n, 0, d->block_size - n);
     } else {
         size_t n = fread(d->cbuf, 1, clen, d->f);
-        int out = stbi_zlib_decode_noheader_buffer((char *)d->bbuf, d->block_size, (const char *)d->cbuf, (int)n);
+        int out = vault_inflate_raw((char *)d->bbuf, d->block_size, (const char *)d->cbuf, (int)n);
         if (out < 0) return 0;
         if ((uint32_t)out < d->block_size) memset(d->bbuf + out, 0, d->block_size - out);
     }

@@ -6,11 +6,22 @@
 #include "platform.h"
 #include "ui.h"
 
+#include <string.h>
+
 static App g_app;
 
+// VAULT_EMBEDDED: VAULT is the front end of its own PSP engine (built into the same eboot).
+// vault_main() shows the library and returns once a game is picked, with its path in `out`,
+// after handing the screen and controller back; the engine then boots that game.
+#ifdef VAULT_EMBEDDED
+#define VAULT_FONTS_SUBDIR "vault/fonts"
+int vault_main(char *out, int out_len) {
+#else
+#define VAULT_FONTS_SUBDIR "assets/fonts"
 int main(void) {
+#endif
     char fonts[256];
-    snprintf(fonts, sizeof fonts, "%s/assets/fonts", plat_app_dir());
+    snprintf(fonts, sizeof fonts, "%s/" VAULT_FONTS_SUBDIR, plat_app_dir());
     // Fonts live inside the package, so load them before escaping the sandbox.
     int nf = fonts_load(fonts);
     if (!plat_init()) {
@@ -47,6 +58,13 @@ int main(void) {
             a->launch_request = 0;
             app_draw_launching(a, &frame);
             plat_present(&frame);
+#ifdef VAULT_EMBEDDED
+            snprintf(out, out_len, "%s", a->launch_path);
+            plat_log("starting %s", out);
+            plat_shutdown();
+            free(frame.px);
+            return 1;
+#endif
             int rc = plat_launch_engine(a->launch_path);
             if (rc != 0) app_launch_failed(a, rc);
             dirty = 1;

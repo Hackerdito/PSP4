@@ -121,3 +121,5 @@ int plat_launch_engine(const char *game_path) {
     const char *fail = getenv("VAULT_LAUNCH_FAIL");
     return fail ? (int)strtoul(fail, NULL, 16) : 0;
 }
+
+void plat_shutdown(void) {}

@@ -44,10 +44,27 @@ static void *g_fb[2];
 static int g_fb_idx = 0;
 static int64_t g_frame = 0;
 static OrbisKernelEqueue g_flip_queue;
+static void *g_fb_mem;
+static off_t g_fb_phys;
+static size_t g_fb_total;
 static int g_pad = -1;
 static int32_t g_user = -1;
 
 const char *plat_app_dir(void) { return "/app0"; }
+
+void plat_shutdown(void) {
+    if (g_pad >= 0) { scePadClose(g_pad); g_pad = -1; }
+    if (g_video >= 0) {
+        sceVideoOutClose(g_video);
+        g_video = -1;
+    }
+    if (g_fb_mem) {
+        sceKernelMunmap(g_fb_mem, g_fb_total);
+        sceKernelReleaseDirectMemory(g_fb_phys, g_fb_total);
+        g_fb_mem = NULL;
+    }
+    sceKernelDeleteEqueue(g_flip_queue);
+}
 
 void plat_log(const char *fmt, ...) {
     char buf[512];
@@ -71,6 +88,7 @@ static int video_init(void) {
     void *mem = NULL;
     if (sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), total, align, 3, &phys) < 0) return 0;
     if (sceKernelMapDirectMemory(&mem, total, 0x33, 0, phys, align) < 0) return 0;
+    g_fb_mem = mem; g_fb_phys = phys; g_fb_total = total;
     g_fb[0] = mem;
     g_fb[1] = (char *)mem + fb_size;
     memset(mem, 0, total);
@@ -82,6 +100,7 @@ static int video_init(void) {
     return 1;
 }
 
+#ifndef VAULT_EMBEDDED
 static void escape_sandbox(void) {
     // Unknown syscalls raise SIGSYS on consoles without GoldHEN; ignore it so we just carry on sandboxed.
     signal(SIGSYS, SIG_IGN);
@@ -95,6 +114,7 @@ static void escape_sandbox(void) {
         plat_log("GoldHEN SDK not found; staying in the sandbox");
     }
 }
+#endif
 
 int plat_init(void) {
     sceSystemServiceHideSplashScreen();
@@ -105,7 +125,11 @@ int plat_init(void) {
     if (scePadInit() == 0) g_pad = scePadOpen(g_user, 0, 0, NULL);
 
     if (!video_init()) { plat_log("video init failed"); return 0; }
+#ifndef VAULT_EMBEDDED
+    // Standalone builds escape the sandbox; the built-in engine must keep it, since jailbreaking
+    // swaps the process root and /app0 (the engine's assets) would no longer resolve.
     escape_sandbox();
+#endif
     return 1;
 }
 
@@ -165,6 +189,11 @@ void plat_clock(int *hh, int *mm) {
     *mm = t.tm_min;
 }
 
+#ifdef VAULT_EMBEDDED
+// The engine is built into this eboot: main.c hands the game over directly.
+int plat_engine_installed(void) { return 1; }
+int plat_launch_engine(const char *game_path) { (void)game_path; return -1; }
+#else
 // ---- PSP engine (M33) ------------------------------------------------------
 
 #define ENGINE_LAUNCH_FILE "/data/March33/launch.txt"
@@ -206,3 +235,5 @@ int plat_launch_engine(const char *game_path) {
     }
     return 0;
 }
+
+#endif  // VAULT_EMBEDDED

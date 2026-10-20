@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v0.6"
+#define VAULT_VERSION "v1.0"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
@@ -502,7 +502,7 @@ static void draw_footer(App *a, Canvas *c) {
     fill_rect(c, 0, (int)y, SCREEN_W, SCREEN_H - (int)y, C_BG, 0.72f);
     fill_rect(c, 0, (int)y, SCREEN_W, 1, 0xFFFFFF, 0.08f);
     float cy = y + 40;
-    float lw = draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "VAULT " VAULT_VERSION " \xC2\xB7 Motor M33", C_MUTED, 1, 0);
+    float lw = draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "VAULT " VAULT_VERSION " \xC2\xB7 Motor PSP integrado", C_MUTED, 1, 0);
     if (!a->browser.open && a->modal == MODAL_NONE) {
         float kx = PAD_X + lw + 40;
         kx += key_chip(c, kx, cy, "OPTIONS") + 10;

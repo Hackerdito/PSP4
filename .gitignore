@@ -6,3 +6,4 @@ eboot.bin
 pkg.gp4
 sce_sys/param.sfo
 *.pkg
+out/

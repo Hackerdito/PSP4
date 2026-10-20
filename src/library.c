@@ -24,8 +24,9 @@ const GameDir kGameDirs[] = {
 };
 #else
 const GameDir kGameDirs[] = {
-    { "/data/March33/games", "Interno", 2, 0 },   // M33's folder: games there show up in both apps
+    { "/data/vault/games", "Interno", 2, 0 },     // VAULT's games folder (the engine's browser starts here too)
     { "/data/vault/PSP/GAME", "Interno", 2, 0 },
+    { "/data/March33/games", "Interno", 2, 1 },   // M33's folder, if it's installed too
     { "/mnt/usb0", "USB0", 3, 1 }, { "/mnt/usb1", "USB1", 3, 1 },
     { "/mnt/usb2", "USB2", 3, 1 }, { "/mnt/usb3", "USB3", 3, 1 },
     { "/mnt/usb4", "USB4", 3, 1 }, { "/mnt/usb5", "USB5", 3, 1 },

@@ -24,6 +24,7 @@ static const Root kRoots[] = {
     { "/mnt/usb2", "USB2", "Memoria USB" }, { "/mnt/usb3", "USB3", "Memoria USB" },
     { "/mnt/usb4", "USB4", "Memoria USB" }, { "/mnt/usb5", "USB5", "Memoria USB" },
     { "/mnt/usb6", "USB6", "Memoria USB" }, { "/mnt/usb7", "USB7", "Memoria USB" },
+    { "/data/vault/games", "Juegos de VAULT", "Interno" },
     { "/data/March33/games", "Juegos de M33", "Interno" },
     { "/data", "Disco interno", "/data" },
     { "/", "Todo el sistema", "/" },

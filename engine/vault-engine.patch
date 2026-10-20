@@ -1,0 +1,173 @@
+diff --git a/UI/EmuScreen.cpp b/UI/EmuScreen.cpp
+index 4c7af55..b74387c 100644
+--- a/UI/EmuScreen.cpp
++++ b/UI/EmuScreen.cpp
+@@ -342,7 +342,7 @@ void EmuScreen::ProcessGameBoot(const Path &filename) {
+ 	// PSP/GAME, so the Game column lists them all (ps4/PS4XmbGames.cpp). The drive stays empty: the
+ 	// firmware boots a disc that is in it at power-on.
+ 	if (filename.GetFilename() == "vshmain.prx")
+-		M33Xmb_PrepareGames(Path("/data/March33/games"));
++		M33Xmb_PrepareGames(Path("/data/vault/games"));
+ 	// A disc started from M33's list: the firmware boots with it in the drive and autobooting it, so
+ 	// its own startup and game boot play first, as on a PSP. When the firmware launches it
+ 	// (sceKernelLoadExec), it's booted again as itself, straight in.
+diff --git a/UI/GameBrowser.cpp b/UI/GameBrowser.cpp
+index d77af7c..20b9834 100644
+--- a/UI/GameBrowser.cpp
++++ b/UI/GameBrowser.cpp
+@@ -849,7 +849,7 @@ Path GameBrowser::HomePath() {
+ #if PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(SWITCH) || PPSSPP_PLATFORM(WINDOWS) || PPSSPP_PLATFORM(UWP) || PPSSPP_PLATFORM(IOS)
+ 	return g_Config.memStickDirectory;
+ #elif PPSSPP_PLATFORM(PS4)
+-	return Path("/data/March33/games");  // M33: the games folder (no HOME here: the Home button crashed)
++	return Path("/data/vault/games");  // M33: the games folder (no HOME here: the Home button crashed)
+ #else
+ 	const char *home = getenv("HOME");
+ 	return home ? Path(home) : g_Config.memStickDirectory;
+diff --git a/ps4/PS4Brand.cpp b/ps4/PS4Brand.cpp
+index 07ac042..518c1e0 100644
+--- a/ps4/PS4Brand.cpp
++++ b/ps4/PS4Brand.cpp
+@@ -151,7 +151,7 @@ float M33_IntroSeconds() {
+ 	static bool tried = false;
+ 	if (!tried) {
+ 		tried = true;
+-		for (const char *path : { "/data/March33/startup.mp4", "/app0/assets/startup.mp4" }) {
++		for (const char *path : { "/data/vault/psp/startup.mp4", "/app0/assets/startup.mp4" }) {
+ 			if (FILE *f = fopen(path, "rb")) {
+ 				fclose(f);
+ 				if (M33Clip::Open(path))
+diff --git a/ps4/PS4Lang.cpp b/ps4/PS4Lang.cpp
+index 7a9f4ab..43fc7fb 100644
+--- a/ps4/PS4Lang.cpp
++++ b/ps4/PS4Lang.cpp
+@@ -42,7 +42,7 @@ const Row kRows[] = {
+ 	{ "Settings", { "Ajustes", "Paramètres", "Einstellungen", "Impostazioni", "Configurações", "Instellingen", "Ustawienia", "Ayarlar", "Настройки", "設定", "设置", "設定", "설정" } },
+ 	{ "Display & Effects", { "Pantalla y efectos", "Affichage et effets", "Anzeige & Effekte", "Schermo ed effetti", "Tela e efeitos", "Beeld en effecten", "Obraz i efekty", "Görüntü ve efektler", "Экран и эффекты", "画面とエフェクト", "显示与效果", "顯示與效果", "화면 및 효과" } },
+ 	{ "Restart Game", { "Reiniciar juego", "Redémarrer le jeu", "Spiel neu starten", "Riavvia gioco", "Reiniciar jogo", "Spel herstarten", "Uruchom grę ponownie", "Oyunu yeniden başlat", "Перезапустить игру", "ゲームをリセット", "重新开始游戏", "重新開始遊戲", "게임 재시작" } },
+-	{ "Exit to M33", { "Salir a M33", "Quitter vers M33", "Zurück zu M33", "Esci a M33", "Sair para o M33", "Terug naar M33", "Wyjdź do M33", "M33'e dön", "Выйти в M33", "M33に戻る", "退出到 M33", "退出到 M33", "M33으로 나가기" } },
++	{ "Exit to the home screen", { "Salir al inicio", "Quitter vers l'accueil", "Zum Startbildschirm", "Esci alla schermata iniziale", "Sair para o início", "Naar het startscherm", "Wyjdź do ekranu głównego", "Ana ekrana dön", "Выйти на главный экран", "ホーム画面に戻る", "退出到主屏幕", "退出到主螢幕", "홈 화면으로 나가기" } },
+ 	{ "Downloading the cheat database...", { "Descargando la base de datos de trucos...", "Téléchargement de la base de codes...", "Cheat-Datenbank wird heruntergeladen...", "Download del database dei trucchi...", "Baixando o banco de dados de trapaças...", "Cheatdatabase downloaden...", "Pobieranie bazy kodów...", "Hile veritabanı indiriliyor...", "Загрузка базы читов...", "チートデータベースをダウンロード中...", "正在下载金手指数据库...", "正在下載金手指資料庫...", "치트 데이터베이스 다운로드 중..." } },
+ 	{ "Couldn't download the cheat database", { "No se pudo descargar la base de datos de trucos", "Impossible de télécharger la base de codes", "Cheat-Datenbank konnte nicht heruntergeladen werden", "Impossibile scaricare il database dei trucchi", "Não foi possível baixar o banco de dados de trapaças", "Kon de cheatdatabase niet downloaden", "Nie udało się pobrać bazy kodów", "Hile veritabanı indirilemedi", "Не удалось загрузить базу читов", "チートデータベースをダウンロードできませんでした", "无法下载金手指数据库", "無法下載金手指資料庫", "치트 데이터베이스를 다운로드할 수 없습니다" } },
+ 	{ "No more cheats for this game in the database", { "No hay más trucos para este juego en la base de datos", "Aucun autre code pour ce jeu dans la base", "Keine weiteren Cheats für dieses Spiel in der Datenbank", "Nessun altro trucco per questo gioco nel database", "Não há mais trapaças para este jogo no banco de dados", "Geen andere cheats voor dit spel in de database", "Brak kolejnych kodów do tej gry w bazie", "Veritabanında bu oyun için başka hile yok", "Других читов для этой игры в базе нет", "データベースにこのゲームのチートは他にありません", "数据库中没有此游戏的更多金手指", "資料庫中沒有此遊戲的更多金手指", "데이터베이스에 이 게임의 다른 치트가 없습니다" } },
+diff --git a/ps4/PS4Main.cpp b/ps4/PS4Main.cpp
+index e1a4465..515ab97 100644
+--- a/ps4/PS4Main.cpp
++++ b/ps4/PS4Main.cpp
+@@ -71,6 +71,9 @@
+ #include <orbis/Pad.h>
+ 
+ extern "C" void ps4_boot_trace(const char *line);  // port/ps4_crashlog.cpp
++// VAULT's library screen (github.com/Hackerdito/PSP4, src/main.c): runs before the emulator and
++// returns 1 with the chosen game's path once one is picked, the screen and pad released again.
++extern "C" int vault_main(char *out, int out_len);
+ extern "C" void ps4_sampler_start();                // port/ps4_sampler.cpp
+ extern "C" size_t ps4_heap_footprint();             // port/ps4_runtime.cpp
+ 
+@@ -79,8 +82,8 @@ bool m33_skip_xmb = false;
+ 
+ namespace {
+ 
+-const char *const kDataRoot = "/data/March33";
+-const char *const kGamesDir = "/data/March33/games";
++const char *const kDataRoot = "/data/vault/psp";
++const char *const kGamesDir = "/data/vault/games";
+ 
+ std::atomic<bool> g_quitRequested{ false };
+ std::atomic<bool> g_restartRequested{ false };
+@@ -153,6 +156,12 @@ bool L1HeldAtLaunch() {
+ 
+ int main(int argc, char *argv[]) {
+ 	LoadSystemModules();
++	// VAULT first: its own screen, until a game is chosen. Then this emulator boots that game.
++	static char vaultGame[1024];
++	Trace("VAULT screen");
++	const bool fromVault = vault_main(vaultGame, sizeof(vaultGame)) == 1 && vaultGame[0];
++	Trace(fromVault ? "VAULT handed over the screen" : "VAULT returned without a game");
++	mkdir("/data/vault", 0777);
+ 	Trace("M33 " + AppVersion() + " starting (PPSSPP " + std::string(PPSSPP_GIT_VERSION) + ")");
+ 	mkdir(kDataRoot, 0777);
+ 	mkdir(kGamesDir, 0777);
+@@ -168,6 +177,10 @@ int main(int argc, char *argv[]) {
+ 	// No command line on the console (argv[0] is the eboot).
+ 	CommandLineOptions cmdLineOptions;
+ 	cmdLineOptions.fullscreen = true;
++	if (fromVault) {
++		cmdLineOptions.bootFilenames.push_back(vaultGame);
++		Trace(std::string("VAULT: ") + vaultGame);
++	}
+ 
+ 	g_display.pixel_xres = ps4wsi::kWidth;
+ 	g_display.pixel_yres = ps4wsi::kHeight;
+@@ -178,6 +191,10 @@ int main(int argc, char *argv[]) {
+ 	NativeInit(argc, (const char **)argv, cmdLineOptions, dataDir.c_str(), kGamesDir, nullptr);
+ 	g_logManager.SetFileLogPath(Path(kDataRoot) / "ppsspp.log");
+ 	g_logManager.EnableOutput(LogOutput::File);
++	// Leaving a game from the quick menu goes back to the console's home screen, from where VAULT
++	// opens again (there's no going back to VAULT's screen inside the same process).
++	if (fromVault)
++		g_Config.bPauseMenuExitsEmulator = true;
+ 
+ 	// Vulkan is the only backend here.
+ 	g_Config.iGPUBackend = (int)GPUBackend::VULKAN;
+@@ -280,7 +297,7 @@ int main(int argc, char *argv[]) {
+ extern "C" void ps4_crash_guest_info() {
+ 	if (!currentMIPS)
+ 		return;
+-	const int fd = open("/data/March33/crash.log", O_WRONLY | O_CREAT | O_APPEND, 0666);
++	const int fd = open("/data/vault/psp/crash.log", O_WRONLY | O_CREAT | O_APPEND, 0666);
+ 	if (fd < 0)
+ 		return;
+ 	char line[160];
+diff --git a/ps4/PS4QuickMenu.cpp b/ps4/PS4QuickMenu.cpp
+index 9a67f77..0ff61c3 100644
+--- a/ps4/PS4QuickMenu.cpp
++++ b/ps4/PS4QuickMenu.cpp
+@@ -87,7 +87,7 @@ enum Row {
+ 
+ const char *const kRowLabels[ROW_COUNT] = {
+ 	"Resume", "Save State", "Load State", "Rewind (L2)", "Frame Generation", "Cheats", "Resolution", "Game Volume", "FPS Counter",
+-	"Settings", "Display & Effects", "Restart Game", "Exit to M33",
++	"Settings", "Display & Effects", "Restart Game", "Exit to the home screen",
+ };
+ 
+ class M33QuickMenu : public UIScreen {
+@@ -680,12 +680,12 @@ void M33QuickMenu::DrawForeground(UIContext &dc) {
+ 
+ void M33QuickMenu::DrawMain(UIContext &dc, DrawBuffer *db, float x0, float right, float W, float H, float k, float a, double now) {
+ 	const float lx = x0 + 70 * k;
+-	Text(dc, "M33", lx, 78 * k, 44 * k, Col(TEXT, a));
++	Text(dc, "VAULT", lx, 78 * k, 44 * k, Col(TEXT, a));
+ 	// the tag: the game is paused behind
+ 	const char *tagText = M33T("QUICK MENU");
+ 	const float tagW = TextW(dc, tagText, 20 * k) + 28 * k;
+ 	const float pulse = 0.75f + 0.25f * std::sin((float)now * 3.0f);
+-	const float tagX = lx + TextW(dc, "M33", 44 * k) + 20 * k;
++	const float tagX = lx + TextW(dc, "VAULT", 44 * k) + 20 * k;
+ 	const uint32_t tagCol = Col(ACCENT, 0.9f * a * pulse);
+ 	Quad(db, tagX, 92 * k, tagX + tagW, 122 * k, tagCol, tagCol, tagCol, tagCol);
+ 	Text(dc, tagText, tagX + 14 * k, 107 * k, 20 * k, Col(TEXT, a), ALIGN_LEFT | ALIGN_VCENTER);
+diff --git a/ps4/ps4.cmake b/ps4/ps4.cmake
+index 407ae6f..114c5a6 100644
+--- a/ps4/ps4.cmake
++++ b/ps4/ps4.cmake
+@@ -30,6 +30,19 @@ target_sources(${TargetBin} PRIVATE
+ 	${PS4_RUNTIME_SOURCES})
+ 
+ # FreeBSD kernel without sockets for local IPC or serial ports
++# VAULT's library screen is the app's front end (C; its stb copies are compiled static).
++if(VAULT_DIR)
++	set(VAULT_SOURCES
++		${VAULT_DIR}/src/main.c ${VAULT_DIR}/src/ui.c ${VAULT_DIR}/src/gfx.c ${VAULT_DIR}/src/disc.c
++		${VAULT_DIR}/src/library.c ${VAULT_DIR}/src/browser.c ${VAULT_DIR}/src/platform_ps4.c)
++	target_sources(${TargetBin} PRIVATE ${VAULT_SOURCES})
++	set_source_files_properties(${VAULT_SOURCES} PROPERTIES
++		COMPILE_DEFINITIONS VAULT_EMBEDDED
++		INCLUDE_DIRECTORIES "${VAULT_DIR}/src;${VAULT_DIR}/third_party"
++		COMPILE_OPTIONS "-w;-O2")
++else()
++	message(FATAL_ERROR "VAULT_DIR must point at the VAULT (PSP4) repository")
++endif()
+ target_compile_definitions(${TargetBin} PRIVATE ASIO_DISABLE_LOCAL_SOCKETS ASIO_DISABLE_SERIAL_PORT ASIO_DISABLE_KQUEUE)
+ 
+ # The network library's shares (port/ps4_netfs.cpp: SMB and NFS under /net)

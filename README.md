@@ -2,21 +2,20 @@
 
 VAULT es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de PSP en formato `.iso` y `.cso` y los muestra en una biblioteca moderna: portada, título real, ID de disco, tamaño y nivel de compresión.
 
-> **Estado: fase 2.** VAULT es la biblioteca y el motor de juego es **[M33](https://github.com/iHaiDeeZ/M33)** (PPSSPP para PS4, GPL-2.0+). Con ✕, VAULT abre M33 con el juego que elegiste.
+> **Estado: v1.0, con motor integrado.** VAULT trae su propio emulador de PSP dentro del mismo PKG: PPSSPP con el port a PS4 de [M33](https://github.com/iHaiDeeZ/M33). No hace falta instalar otra app. Detalles en [`engine/`](engine/README.md).
 
 ## Instalar en tu PS4
 
 1. Necesitas una PS4 con **GoldHEN** activo. El firmware solo tiene que poder hackearse, de 5.05 a 13.x.
 2. Copia `VAULT.pkg` a una USB en **exFAT**.
 3. Instálalo desde **Ajustes → Debug Settings → Game → Package Installer**.
-4. Instala también el motor **M33 v1.03 o más nuevo** ([releases](https://github.com/iHaiDeeZ/M33/releases/latest)) de la misma forma.
-5. Abre **VAULT** desde el menú principal.
+4. Abre **VAULT** desde el menú principal.
 
 ## Dónde poner tus juegos
 
 | Lugar | Carpeta | Cómo copiar |
 | --- | --- | --- |
-| **Recomendado** | `/data/March33/games/` | FTP. Es la carpeta de M33: tus juegos aparecen en las dos apps |
+| **Recomendado** | `/data/vault/games/` | FTP de GoldHEN, puerto 2121 |
 | Disco interno | `/data/vault/PSP/GAME/` | FTP de GoldHEN, puerto 2121 |
 | USB | **cualquier carpeta**, en cualquier puerto (`usb0` a `usb7`) | VAULT revisa la memoria completa, hasta 3 carpetas de profundidad |
 
@@ -28,7 +27,7 @@ Formatos: `.iso` y `.cso` (CISO v1). VAULT saca de cada disco el título, el ID,
 | --- | --- |
 | ← → (cruceta o stick) | Moverse por la biblioteca |
 | L1 / R1 | Filtro: Todos · ISO · CSO |
-| ✕ | Jugar (abre M33 con el juego) |
+| ✕ | Jugar |
 | △ | Detalles del archivo |
 | □ | **Explorar**: navega USB y disco interno |
 | OPTIONS | Volver a escanear |
@@ -47,16 +46,27 @@ Muestra las unidades conectadas (USB0 a USB7, juegos de M33, disco interno y tod
 
 ## Cómo se abre un juego
 
-Al presionar ✕, VAULT:
+Al presionar ✕, la pantalla de VAULT se cierra y el motor arranca el juego en la misma app.
 
-1. Escribe la ruta del juego en `/data/March33/launch.txt`.
-2. Abre M33 (`MRCH00033`) con `sceLncUtilLaunchApp`, pasándole la ruta como argumento.
+**Durante el juego** (controles del port de M33):
 
-M33 1.03 todavía no lee ninguna de las dos cosas: se abre en su propia lista de juegos y ahí eliges el juego. Por eso conviene guardarlos en `/data/March33/games/`. El cambio para que M33 arranque el juego directo está en [`engine/m33-launch-args.patch`](engine/m33-launch-args.patch): son 24 líneas en `ps4/PS4Main.cpp`, listas para proponérselas al autor de M33.
+| DualShock 4 | PSP |
+| --- | --- |
+| ✕ ○ □ △, cruceta, stick izquierdo | Igual que en la PSP |
+| L1 / R1 | L / R |
+| OPTIONS | START |
+| Clic en el touchpad | SELECT |
+| L2 (mantener) | Rebobinar |
+| R2 | Avance rápido |
+| **L3 + R3** | Menú rápido: guardar y cargar estado, trucos, resolución, **Salir al inicio** |
 
-Para volver a VAULT: menú rápido de M33 (L3 + R3) → Salir, o el botón PS.
+Tus partidas quedan en `/data/vault/psp/PSP/SAVEDATA`. Si algo falla, `/data/vault/psp/boot-trace.log` y `crash.log` dicen hasta dónde llegó.
 
 ## Compilar
+
+**Con el motor (el PKG que se instala):** ver [`engine/README.md`](engine/README.md) (`engine/build-engine.sh` y `engine/package-vault.sh`).
+
+**Solo la pantalla de VAULT** (sin motor, para probar la interfaz):
 
 En Linux o WSL (Ubuntu):
 
@@ -97,14 +107,14 @@ tools/              SDK, stubs, datos de prueba, arte del paquete
 ## Plan
 
 - [x] **Fase 1:** paquete instalable, biblioteca ISO/CSO, portadas, filtros y detalles.
-- [x] **Fase 2:** jugar con el motor M33 (PPSSPP para PS4) instalado aparte.
-- [ ] **Fase 2b:** que M33 arranque el juego directo (`engine/m33-launch-args.patch`).
-- [ ] **Fase 3:** guardados, favoritos, recientes y ajustes por juego.
+- [x] **Fase 2:** jugar con el motor M33 instalado aparte.
+- [x] **Fase 3:** motor PSP integrado en VAULT (un solo PKG).
+- [ ] **Fase 4:** favoritos, recientes, volver a VAULT al salir de un juego.
 
 ## Créditos y licencias
 
 - VAULT: GPL-3.0-or-later (ver `LICENSE`).
-- [M33](https://github.com/iHaiDeeZ/M33) de ShiroKlein: el motor PSP (PPSSPP), GPL-2.0-or-later. VAULT no lo incluye; solo lo abre.
+- [PPSSPP](https://github.com/hrydgard/ppsspp) (Henrik Rydgård y colaboradores) y su port a PS4 [M33](https://github.com/iHaiDeeZ/M33) de ShiroKlein, con la base de Resonance, DolphinPS4 y Crema: el motor, GPL-2.0-or-later. Mesa (RADV), MIT. FFmpeg, LGPL.
 - [OpenOrbis PS4 Toolchain](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain), musl, create-fself, create-gp4 y LibOrbisPkg: GPL-3.0 / MIT.
 - [GoldHEN Plugins SDK](https://github.com/GoldHEN/GoldHEN_Plugins_SDK): MIT (llamada de jailbreak).
 - [stb](https://github.com/nothings/stb): dominio público / MIT.

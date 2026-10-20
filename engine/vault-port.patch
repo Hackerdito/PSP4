@@ -1,0 +1,117 @@
+diff --git a/port/ps4_crashlog.cpp b/port/ps4_crashlog.cpp
+index 33c75ba..6115532 100644
+--- a/port/ps4_crashlog.cpp
++++ b/port/ps4_crashlog.cpp
+@@ -2,9 +2,9 @@
+ //
+ // PS4 coredumps are encrypted and klog is shared with other tools, so the app reports its own
+ // crashes: a constructor that runs before all others (priority 101) starts
+-// /data/March33/boot-trace.log and installs a handler for fatal signals that appends the
++// /data/vault/psp/boot-trace.log and installs a handler for fatal signals that appends the
+ // signal, fault address, registers and the code addresses found on the stack to
+-// /data/March33/crash.log. Addresses are printed relative to the start of .text, i.e. as ELF
++// /data/vault/psp/crash.log. Addresses are printed relative to the start of .text, i.e. as ELF
+ // virtual addresses: symbolize with `llvm-symbolizer --obj=<elf> 0x...`.
+ //
+ // Handlers installed later (Dolphin's fastmem handler) chain to this one for faults they don't
+@@ -86,8 +86,9 @@ bool readable(const void* address) {
+ // Opened on first use: the heap may log before this file's constructor runs.
+ int traceFd() {
+     if (g_traceFd < 0) {
+-        mkdir("/data/March33", 0777);
+-        g_traceFd = open("/data/March33/boot-trace.log", O_WRONLY | O_CREAT | O_TRUNC, 0666);
++        mkdir("/data/vault", 0777);
++        mkdir("/data/vault/psp", 0777);
++        g_traceFd = open("/data/vault/psp/boot-trace.log", O_WRONLY | O_CREAT | O_TRUNC, 0666);
+     }
+     return g_traceFd;
+ }
+@@ -137,7 +138,7 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
+     if (s_depth++ > 0)
+         _exit(128 + sig);
+ 
+-    const int fd = open("/data/March33/crash.log", O_WRONLY | O_CREAT | O_APPEND, 0666);
++    const int fd = open("/data/vault/psp/crash.log", O_WRONLY | O_CREAT | O_APPEND, 0666);
+     if (fd >= 0) {
+         const auto* regs = reinterpret_cast<const uint64_t*>(static_cast<char*>(context) + kMcontextOffset);
+         const uint64_t rip = regs[kRipIndex];
+@@ -180,7 +181,7 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
+         _exit(126);
+     }, nullptr);
+     // Where every other thread was (stacks, and the lock each one waits on), after the crash.
+-    ps4_dump_thread_stacks("/data/March33/crash.log", "every thread at the crash");
++    ps4_dump_thread_stacks("/data/vault/psp/crash.log", "every thread at the crash");
+     // The emulator's view of the crash (M33: the PSP CPU registers, into crash.log).
+     if (ps4_crash_guest_info) {
+         ps4_crash_guest_info();
+@@ -210,7 +211,7 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
+         }
+         snprintf(message, sizeof(message), "uncaught exception %s: %s", name ? name : type->name(), what);
+     }
+-    const int fd = open("/data/March33/crash.log", O_WRONLY | O_CREAT | O_APPEND, 0666);
++    const int fd = open("/data/vault/psp/crash.log", O_WRONLY | O_CREAT | O_APPEND, 0666);
+     if (fd >= 0) {
+         writeFormat(fd, "\n=== %s\n", message);
+         close(fd);
+@@ -258,7 +259,7 @@ extern "C" __attribute__((noinline)) void ps4_trace_callers(const char* what) {
+     ps4_boot_trace(line);
+ }
+ 
+-// Appends a line to /data/March33/boot-trace.log (startup milestones), prefixed with the
++// Appends a line to /data/vault/psp/boot-trace.log (startup milestones), prefixed with the
+ // seconds since the first trace line.
+ extern "C" void ps4_boot_trace(const char* stage) {
+     const int fd = traceFd();
+diff --git a/port/ps4_sampler.cpp b/port/ps4_sampler.cpp
+index 486ed86..29e4d38 100644
+--- a/port/ps4_sampler.cpp
++++ b/port/ps4_sampler.cpp
+@@ -3,10 +3,10 @@
+ // PS4 has no perf/Razor access for homebrew, so the app samples itself: a helper thread sends
+ // SIGPROF to each registered thread every millisecond, and the handler records the interrupted
+ // instruction pointer. Every 10 seconds the samples are aggregated and appended to
+-// /data/March33/samples.log: per thread, the busiest eboot addresses (ELF virtual addresses,
++// /data/vault/psp/samples.log: per thread, the busiest eboot addresses (ELF virtual addresses,
+ // symbolize with `llvm-symbolizer --obj=<oelf> 0x...`), system module addresses ("sys") and JIT
+ // code addresses ("jit", 16-byte buckets). Every 60 s the busiest JIT code (64 KiB chunks) is
+-// copied to /data/March33/jitcode.bin and the emulated MEM1 to mem1.bin, so the generated x86
++// copied to /data/vault/psp/jitcode.bin and the emulated MEM1 to mem1.bin, so the generated x86
+ // and the guest code behind it can be disassembled offline (blocks: the jit-perf map written by
+ // Common/JitRegister).
+ //
+@@ -238,7 +238,7 @@ bool isReadable(uint64_t address, uint64_t size) {
+ // jitcode.bin: records of {u64 address, u64 size, bytes}. Copied through a buffer first so the
+ // kernel never reads JIT memory for the file write.
+ void dumpJitCode() {
+-    const int fd = open("/data/March33/jitcode.bin", O_WRONLY | O_CREAT | O_TRUNC, 0666);
++    const int fd = open("/data/vault/psp/jitcode.bin", O_WRONLY | O_CREAT | O_TRUNC, 0666);
+     if (fd >= 0) {
+         static uint8_t buffer[0x10000];
+         for (int i = 0; i < g_hot_chunk_count; i++) {
+@@ -253,7 +253,7 @@ void dumpJitCode() {
+     }
+     g_hot_chunk_count = 0;
+     if (ps4_profile_guest_ram && ps4_profile_guest_ram_size) {
+-        const int ram = open("/data/March33/mem1.bin", O_WRONLY | O_CREAT | O_TRUNC, 0666);
++        const int ram = open("/data/vault/psp/mem1.bin", O_WRONLY | O_CREAT | O_TRUNC, 0666);
+         if (ram >= 0) {
+             static uint8_t copy[0x100000];
+             for (uint32_t offset = 0; offset < ps4_profile_guest_ram_size; offset += sizeof(copy)) {
+@@ -270,7 +270,7 @@ void dumpJitCode() {
+ std::atomic<bool> g_sampler_on{false};
+ 
+ void* samplerThread(void*) {
+-    const int fd = open("/data/March33/samples.log", O_WRONLY | O_CREAT | O_TRUNC, 0666);
++    const int fd = open("/data/vault/psp/samples.log", O_WRONLY | O_CREAT | O_TRUNC, 0666);
+     if (fd < 0)
+         return nullptr;
+     writeModuleList(fd);
+@@ -656,7 +656,7 @@ extern "C" void ps4_sampler_start() {
+ 
+     pthread_t thread;
+     if (pthread_create(&thread, nullptr, samplerThread, nullptr) == 0)
+-        ps4_boot_trace("sampler: started, writing /data/March33/samples.log every 10 s");
++        ps4_boot_trace("sampler: started, writing /data/vault/psp/samples.log every 10 s");
+ }
+ 
+ // The menus' Profiler switch: starts the sampler the first time, then pauses / resumes it.

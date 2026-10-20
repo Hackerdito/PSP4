@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#define STB_IMAGE_STATIC
+#define STBTT_STATIC
 #define STBI_NO_THREAD_LOCALS
 #define STBI_ONLY_PNG
 #define STBI_ONLY_JPEG
@@ -14,6 +16,11 @@
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "stb/stb_truetype.h"
+
+// Raw deflate for CSO blocks (stb is compiled static so it can live beside other stb users).
+int vault_inflate_raw(char *out, int out_len, const char *in, int in_len) {
+    return stbi_zlib_decode_noheader_buffer(out, out_len, in, in_len);
+}
 
 static inline float clampf(float v, float lo, float hi) { return v < lo ? lo : (v > hi ? hi : v); }
 static inline int mini(int a, int b) { return a < b ? a : b; }
