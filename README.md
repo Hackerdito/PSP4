@@ -17,9 +17,8 @@ VAULT es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de PSP 
 | Lugar | Carpeta | Cómo copiar |
 | --- | --- | --- |
 | **Recomendado** | `/data/March33/games/` | FTP. Es la carpeta de M33: tus juegos aparecen en las dos apps |
-| Disco interno | `/data/vault/PSP/GAME/` | FTP de GoldHEN, puerto 2121. VAULT crea la carpeta al abrirse por primera vez |
-| USB | `/vault/PSP/GAME/` en la raíz de la memoria | Desde tu PC |
-| USB (estilo PSP) | `/PSP/GAME/` en la raíz de la memoria | Desde tu PC |
+| Disco interno | `/data/vault/PSP/GAME/` | FTP de GoldHEN, puerto 2121 |
+| USB | **cualquier carpeta**, en cualquier puerto (`usb0` a `usb7`) | VAULT revisa la memoria completa, hasta 3 carpetas de profundidad |
 
 Formatos: `.iso` y `.cso` (CISO v1). VAULT saca de cada disco el título, el ID, `ICON0.PNG` (miniatura) y `PIC1.PNG` (portada grande).
 

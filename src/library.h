@@ -32,7 +32,7 @@ typedef struct {
     char sample[96];       // first non-game file name, to show
 } DirReport;
 
-#define MAX_REPORTS 8
+#define MAX_REPORTS 12
 
 typedef struct {
     Game games[MAX_GAMES];
@@ -44,9 +44,15 @@ typedef struct {
     int data_readable;     // /data could be listed (sandbox escaped)
 } Library;
 
-// The folders VAULT looks in, NULL terminated. The first entry is created if missing.
-extern const char *const kGameDirs[];
-extern const char *const kGameDirLabels[];
+typedef struct {
+    const char *path;
+    const char *label;     // shown on the game ("Interno", "USB1")
+    int max_depth;         // subfolder levels searched
+    int optional;          // USB ports: only reported when a drive is there
+} GameDir;
+
+// The folders VAULT looks in, ended by a NULL path. Non-optional ones are created if missing.
+extern const GameDir kGameDirs[];
 
 // tile_w/tile_h: size the icon is pre-scaled to.
 void library_scan(Library *lib, int tile_w, int tile_h);

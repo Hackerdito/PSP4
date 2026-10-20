@@ -9,18 +9,32 @@
 #include <string.h>
 #include <sys/stat.h>
 
+// Where VAULT looks. Internal folders are always reported; a USB port only when a drive is in it.
+// USB drives are searched whole (3 folders deep), so games can sit anywhere on them.
 #ifdef VAULT_HOST
-const char *const kGameDirs[] = { "testdata/data/vault/PSP/GAME", "testdata/usb0/vault/PSP/GAME", NULL };
+const GameDir kGameDirs[] = {
+    { "testdata/data/March33/games", "Interno", 2, 0 },
+    { "testdata/data/vault/PSP/GAME", "Interno", 2, 0 },
+    { "testdata/usb0", "USB0", 3, 1 },
+    { "testdata/usb1", "USB1", 3, 1 },
+    { NULL, NULL, 0, 0 },
+};
 #else
-// M33's own games folder comes first: games there show up in both apps.
-const char *const kGameDirs[] = { "/data/March33/games", "/data/vault/PSP/GAME", "/mnt/usb0/vault/PSP/GAME",
-                                  "/mnt/usb1/vault/PSP/GAME", "/mnt/usb0/PSP/GAME", "/mnt/usb1/PSP/GAME", NULL };
+const GameDir kGameDirs[] = {
+    { "/data/March33/games", "Interno", 2, 0 },   // M33's folder: games there show up in both apps
+    { "/data/vault/PSP/GAME", "Interno", 2, 0 },
+    { "/mnt/usb0", "USB0", 3, 1 }, { "/mnt/usb1", "USB1", 3, 1 },
+    { "/mnt/usb2", "USB2", 3, 1 }, { "/mnt/usb3", "USB3", 3, 1 },
+    { "/mnt/usb4", "USB4", 3, 1 }, { "/mnt/usb5", "USB5", 3, 1 },
+    { "/mnt/usb6", "USB6", 3, 1 }, { "/mnt/usb7", "USB7", 3, 1 },
+    { NULL, NULL, 0, 0 },
+};
 #endif
-#ifdef VAULT_HOST
-const char *const kGameDirLabels[] = { "Interno", "USB0", NULL };
-#else
-const char *const kGameDirLabels[] = { "Interno", "Interno", "USB0", "USB1", "USB0", "USB1", NULL };
-#endif
+
+static int skip_folder(const char *name) {
+    return strcasecmp(name, "System Volume Information") == 0 || strcasecmp(name, "$RECYCLE.BIN") == 0 ||
+           strcasecmp(name, "LOST.DIR") == 0;
+}
 
 static int ends_with_ci(const char *s, const char *ext) {
     size_t n = strlen(s), e = strlen(ext);
@@ -170,7 +184,7 @@ static void count_ext(ExtCount *ec, int *nec, const char *name) {
 
 static FILE *g_log;
 
-static void scan_dir(Library *lib, const char *dirpath, const char *label, int depth,
+static void scan_dir(Library *lib, const char *dirpath, const char *label, int depth, int max_depth,
                      DirReport *r, ExtCount *ec, int *nec, int tile_w, int tile_h) {
     DIR *dir = opendir(dirpath);
     if (!dir) return;
@@ -182,10 +196,11 @@ static void scan_dir(Library *lib, const char *dirpath, const char *label, int d
         struct stat st;
         int have = stat(full, &st) == 0;
         if (have && S_ISDIR(st.st_mode)) {
+            if (skip_folder(e->d_name)) continue;
             r->subdirs++;
             if (g_log) fprintf(g_log, "  [dir] %s\n", full);
-            // Games are often kept one folder deep ("games/God of War/god.iso").
-            if (depth < 2) scan_dir(lib, full, label, depth + 1, r, ec, nec, tile_w, tile_h);
+            // Games are often kept a folder or two deep ("games/God of War/god.iso", "USB:/ISO/god.iso").
+            if (depth < max_depth) scan_dir(lib, full, label, depth + 1, max_depth, r, ec, nec, tile_w, tile_h);
             continue;
         }
         r->files++;
@@ -230,38 +245,43 @@ void library_scan(Library *lib, int tile_w, int tile_h) {
     if (data) closedir(data);
     if (g_log) fprintf(g_log, "VAULT scan. /data legible: %s\n", lib->data_readable ? "si" : "NO (sandbox)");
 
-    for (int k = 0; kGameDirs[k]; k++) {
-        DirReport *r = k < MAX_REPORTS ? &lib->reports[lib->report_count++] : NULL;
-        DirReport dummy;
-        if (!r) r = &dummy;
-        memset(r, 0, sizeof *r);
-        snprintf(r->path, sizeof r->path, "%s", kGameDirs[k]);
-        if (!resolve_ci(kGameDirs[k], r->used, sizeof r->used)) {
-            r->err = errno;
-            if (g_log) fprintf(g_log, "%s: no existe (errno %d)\n", kGameDirs[k], r->err);
-            continue;
+    for (int k = 0; kGameDirs[k].path; k++) {
+        const GameDir *gd = &kGameDirs[k];
+        DirReport r;
+        memset(&r, 0, sizeof r);
+        snprintf(r.path, sizeof r.path, "%s", gd->path);
+        if (!resolve_ci(gd->path, r.used, sizeof r.used)) {
+            r.err = errno;
+            if (g_log) fprintf(g_log, "%s: no existe (errno %d)\n", gd->path, r.err);
+        } else {
+            // An empty USB port can still show as an empty folder: count it only if it can be listed.
+            DIR *probe = opendir(r.used);
+            if (probe) { r.exists = 1; closedir(probe); }
         }
-        r->exists = 1;
-        lib->folders_found++;
-        if (g_log) fprintf(g_log, "%s -> %s\n", kGameDirs[k], r->used);
-        ExtCount ec[8];
-        int nec = 0;
-        scan_dir(lib, r->used, kGameDirLabels[k], 0, r, ec, &nec, tile_w, tile_h);
-        char *o = r->other;
-        size_t left = sizeof r->other;
-        for (int i = 0; i < nec && left > 1; i++) {
-            int w = snprintf(o, left, "%s%s x%d", i ? ", " : "", ec[i].ext, ec[i].n);
-            if (w < 0 || (size_t)w >= left) break;
-            o += w; left -= w;
+        if (r.exists) {
+            lib->folders_found++;
+            if (g_log) fprintf(g_log, "%s -> %s\n", gd->path, r.used);
+            ExtCount ec[8];
+            int nec = 0;
+            scan_dir(lib, r.used, gd->label, 0, gd->max_depth, &r, ec, &nec, tile_w, tile_h);
+            char *o = r.other;
+            size_t left = sizeof r.other;
+            for (int i = 0; i < nec && left > 1; i++) {
+                int w = snprintf(o, left, "%s%s x%d", i ? ", " : "", ec[i].ext, ec[i].n);
+                if (w < 0 || (size_t)w >= left) break;
+                o += w; left -= w;
+            }
+            if (g_log) fprintf(g_log, "  = %d juegos, %d otros archivos, %d carpetas\n", r.games, r.files - r.games, r.subdirs);
         }
-        if (g_log) fprintf(g_log, "  = %d juegos, %d otros archivos, %d carpetas\n", r->games, r->files - r->games, r->subdirs);
+        if ((r.exists || !gd->optional) && lib->report_count < MAX_REPORTS)
+            lib->reports[lib->report_count++] = r;
     }
     if (g_log) { fclose(g_log); g_log = NULL; }
     // The first two folders are VAULT's / M33's own: create them if missing, after reporting.
     // (only when no folder with that name in any capitalisation exists, so a "Games" isn't shadowed).
     char tmp[256];
-    for (int k = 0; k < 2 && kGameDirs[k]; k++)
-        if (!resolve_ci(kGameDirs[k], tmp, sizeof tmp)) mkdirs(kGameDirs[k]);
+    for (int k = 0; kGameDirs[k].path; k++)
+        if (!kGameDirs[k].optional && !resolve_ci(kGameDirs[k].path, tmp, sizeof tmp)) mkdirs(kGameDirs[k].path);
     qsort(lib->games, lib->count, sizeof(Game), cmp_games);
 }
 

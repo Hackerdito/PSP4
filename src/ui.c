@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v0.3"
+#define VAULT_VERSION "v0.4"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
@@ -306,7 +306,7 @@ static void draw_empty_report(App *a, Canvas *c, float x, float y) {
         draw_text(c, FONT_BODY, 22, x, y + 36, "Activa GoldHEN antes de abrir VAULT y vuelve a entrar.", C_SOFT, 1, 0);
         y += 84;
     } else {
-        draw_text(c, FONT_BODY, 24, x, y, "Esto encontr\xC3\xA9 en cada carpeta (.iso y .cso, hasta 2 subcarpetas):", C_SOFT, 1, 0);
+        draw_text(c, FONT_BODY, 24, x, y, "Esto encontr\xC3\xA9 (.iso y .cso; las USB se revisan completas):", C_SOFT, 1, 0);
         y += 46;
     }
     for (int i = 0; i < L->report_count && i < 6; i++) {
