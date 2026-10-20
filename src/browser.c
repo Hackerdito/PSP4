@@ -39,6 +39,29 @@ static int ends_ci(const char *s, const char *ext) {
     return 1;
 }
 
+void browser_display_path(const char *path, char *out, int out_len) {
+    int best = -1;
+    size_t best_len = 0;
+    for (int i = 0; kRoots[i].path; i++) {
+        size_t l = strlen(kRoots[i].path);
+        if (strcmp(kRoots[i].path, "/") == 0) continue;
+        if (strncmp(path, kRoots[i].path, l) == 0 && (path[l] == 0 || path[l] == '/') && l > best_len) { best = i; best_len = l; }
+    }
+    char rest[512];
+    const char *tail = best >= 0 ? path + best_len : path;
+    while (*tail == '/') tail++;
+    // Separate folders with " / " so the path reads like breadcrumbs.
+    int o = 0;
+    for (const char *p = tail; *p && o < (int)sizeof rest - 4; p++) {
+        if (*p == '/') { rest[o++] = ' '; rest[o++] = '/'; rest[o++] = ' '; }
+        else rest[o++] = *p;
+    }
+    rest[o] = 0;
+    const char *head = best >= 0 ? kRoots[best].name : "Sistema";
+    if (rest[0]) snprintf(out, out_len, "%s / %s", head, rest);
+    else snprintf(out, out_len, "%s", head);
+}
+
 void browser_show_root(Browser *b) {
     b->at_root = 1;
     b->path[0] = 0;
@@ -104,12 +127,11 @@ int browser_enter(Browser *b, const char *path_in) {
         memset(en, 0, sizeof *en);
         snprintf(en->name, sizeof en->name, "%s", e->d_name);
         snprintf(en->full, sizeof en->full, "%s%s%s", path, path[strlen(path) - 1] == '/' ? "" : "/", e->d_name);
-        struct stat st;
-        if (stat(en->full, &st) == 0 && S_ISDIR(st.st_mode)) {
+        if (path_is_dir(en->full)) {
             en->kind = ENTRY_DIR;
             snprintf(en->note, sizeof en->note, "Carpeta");
         } else {
-            en->size = stat(en->full, &st) == 0 ? (uint64_t)st.st_size : 0;
+            en->size = path_size(en->full);
             en->kind = (ends_ci(e->d_name, ".iso") || ends_ci(e->d_name, ".cso")) ? ENTRY_GAME : ENTRY_FILE;
             format_size(en->size, en->note, sizeof en->note);
         }

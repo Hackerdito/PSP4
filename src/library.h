@@ -62,3 +62,9 @@ void library_free(Library *lib);
 Image library_load_cover(const Game *g, int w, int h);
 
 void format_size(uint64_t bytes, char *out, int out_len);
+
+// File-system helpers that avoid stat(): the console's libkernel fills a FreeBSD 9 struct stat,
+// whose st_size sits 8 bytes before where the C library's header expects it.
+int path_exists(const char *path);
+int path_is_dir(const char *path);
+uint64_t path_size(const char *path);

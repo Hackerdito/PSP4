@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v0.5"
+#define VAULT_VERSION "v0.6"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
@@ -174,12 +174,8 @@ static void update_scroll_target(App *a) {
 }
 
 static void request_launch(App *a, const char *path) {
-    if (plat_engine_installed()) {
-        snprintf(a->launch_path, sizeof a->launch_path, "%s", path);
-        a->launch_request = 1;
-    } else {
-        a->modal = MODAL_NO_ENGINE;
-    }
+    snprintf(a->launch_path, sizeof a->launch_path, "%s", path);
+    a->launch_request = 1;
 }
 
 #define BROWSER_ROWS 10
@@ -215,7 +211,9 @@ static int browser_update(App *a, uint32_t pressed) {
         if (folder) {
             int r = library_folder_add(folder);
             char msg[160];
-            if (r > 0) { snprintf(msg, sizeof msg, "Agregada a tu biblioteca: %s", folder); b->folders_added = 1; }
+            char fp[300];
+            browser_display_path(folder, fp, sizeof fp);
+            if (r > 0) { snprintf(msg, sizeof msg, "Agregada a tu biblioteca: %s", fp); b->folders_added = 1; }
             else if (r == 0) snprintf(msg, sizeof msg, "Esa carpeta ya est\xC3\xA1 en tu biblioteca");
             else snprintf(msg, sizeof msg, "No se pudo guardar la carpeta");
             browser_toast(b, msg);
@@ -552,7 +550,7 @@ static void draw_modal(App *a, Canvas *c) {
             title = "Falta el motor PSP";
             snprintf(l1, sizeof l1, "VAULT juega con M33 (PPSSPP para PS4). Inst\xC3\xA1lalo una vez:");
             snprintf(l2, sizeof l2, "descarga M33 v1.03 o m\xC3\xA1s nuevo e inst\xC3\xA1lalo con el Package Installer.");
-            snprintf(code, sizeof code, "github.com/iHaiDeeZ/M33/releases");
+            snprintf(code, sizeof code, "github.com/iHaiDeeZ/M33/releases \xC2\xB7 c\xC3\xB3" "digo 0x%08X", (unsigned)a->launch_error);
         } else {
             title = "No se pudo abrir M33";
             snprintf(l1, sizeof l1, "La consola rechaz\xC3\xB3 el lanzamiento. Abre M33 desde el men\xC3\xBA:");
@@ -581,7 +579,9 @@ static void draw_modal(App *a, Canvas *c) {
     format_size(g->image_size, real, sizeof real);
     if (g->fmt == DISC_CSO && g->image_size) snprintf(comp, sizeof comp, "%d%% ahorrado", (int)(100 - g->file_size * 100 / g->image_size));
     else snprintf(comp, sizeof comp, "Sin compresi\xC3\xB3n");
-    text_ellipsize(FONT_MONO, 20, g->path, w - 112 - 220, path, sizeof path, 0);
+    char friendly[512];
+    browser_display_path(g->path, friendly, sizeof friendly);
+    text_ellipsize(FONT_MONO, 20, friendly, w - 112 - 220, path, sizeof path, 0);
     const char *rows[][2] = {
         { "Archivo", path },
         { "Formato", g->fmt == DISC_CSO ? "CSO (ISO comprimido)" : "ISO" },
@@ -633,7 +633,8 @@ static void draw_browser(App *a, Canvas *c) {
 
     draw_text(c, FONT_MONO, 18, px, y + 62, "EXPLORAR", C_ACCENT, 1, 3.6f);
     char where[512], we[300];
-    snprintf(where, sizeof where, "%s", b->at_root ? "Unidades" : b->path);
+    if (b->at_root) snprintf(where, sizeof where, "Unidades");
+    else browser_display_path(b->path, where, sizeof where);
     text_ellipsize(FONT_DISPLAY, 38, where, w - 460, we, sizeof we, -0.5f);
     draw_text(c, FONT_DISPLAY, 38, px - 2, y + 112, we, C_TEXT, 1, -0.5f);
     int games = 0, dirs = 0;
@@ -732,7 +733,7 @@ void app_draw_scanning(Canvas *c, const Canvas *bg) {
 
 void app_launch_failed(App *a, int code) {
     a->launch_error = code;
-    a->modal = MODAL_LAUNCH_ERROR;
+    a->modal = plat_engine_installed() ? MODAL_LAUNCH_ERROR : MODAL_NO_ENGINE;
 }
 
 // Full-screen hand-off card shown while the console switches to M33.

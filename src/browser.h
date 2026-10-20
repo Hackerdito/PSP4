@@ -34,6 +34,8 @@ void browser_show_root(Browser *b);
 // Opens a folder; returns 0 and sets b->error if it can't be listed.
 int browser_enter(Browser *b, const char *path);
 void browser_up(Browser *b);
+// Friendly form of a path: "/mnt/usb0/Juegos/x.iso" -> "USB0 / Juegos / x.iso".
+void browser_display_path(const char *path, char *out, int out_len);
 
 // Saved library folders (one path per line).
 int library_folder_add(const char *path);          // 1 added, 0 already there, -1 error

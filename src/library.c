@@ -8,7 +8,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 // Where VAULT looks. Internal folders are always reported; a USB port only when a drive is in it.
 // USB drives are searched whole (3 folders deep), so games can sit anywhere on them.
@@ -35,6 +37,23 @@ const GameDir kGameDirs[] = {
 static int skip_folder(const char *name) {
     return strcasecmp(name, "System Volume Information") == 0 || strcasecmp(name, "$RECYCLE.BIN") == 0 ||
            strcasecmp(name, "LOST.DIR") == 0;
+}
+
+int path_exists(const char *path) { return access(path, F_OK) == 0; }
+
+int path_is_dir(const char *path) {
+    DIR *d = opendir(path);
+    if (!d) return 0;
+    closedir(d);
+    return 1;
+}
+
+uint64_t path_size(const char *path) {
+    int fd = open(path, O_RDONLY);
+    if (fd < 0) return 0;
+    off_t end = lseek(fd, 0, SEEK_END);
+    close(fd);
+    return end > 0 ? (uint64_t)end : 0;
 }
 
 static int ends_with_ci(const char *s, const char *ext) {
@@ -146,8 +165,7 @@ static int resolve_ci(const char *path, char *out, size_t out_len) {
         snprintf(part, sizeof part, "%.*s", (int)n, p);
         char exact[512];
         snprintf(exact, sizeof exact, "%s%s%s", cur, (cur[0] && cur[strlen(cur) - 1] != '/') ? "/" : "", part);
-        struct stat st;
-        if (stat(exact, &st) == 0) {
+        if (path_exists(exact)) {
             snprintf(cur, sizeof cur, "%s", exact);
         } else {
             DIR *d = opendir(cur[0] ? cur : ".");
@@ -195,9 +213,7 @@ static void scan_dir(Library *lib, const char *dirpath, const char *label, int d
         if (e->d_name[0] == '.') continue;
         char full[512];
         snprintf(full, sizeof full, "%s/%s", dirpath, e->d_name);
-        struct stat st;
-        int have = stat(full, &st) == 0;
-        if (have && S_ISDIR(st.st_mode)) {
+        if (path_is_dir(full)) {
             if (skip_folder(e->d_name)) continue;
             r->subdirs++;
             if (g_log) fprintf(g_log, "  [dir] %s\n", full);
@@ -207,7 +223,7 @@ static void scan_dir(Library *lib, const char *dirpath, const char *label, int d
         }
         r->files++;
         int is_game = ends_with_ci(e->d_name, ".iso") || ends_with_ci(e->d_name, ".cso");
-        if (g_log) fprintf(g_log, "  %s %s (%lld bytes)\n", is_game ? "[juego]" : "[otro] ", full, have ? (long long)st.st_size : -1LL);
+        if (g_log) fprintf(g_log, "  %s %s (%lld bytes)\n", is_game ? "[juego]" : "[otro] ", full, (long long)path_size(full));
         if (!is_game) {
             count_ext(ec, nec, e->d_name);
             if (!r->sample[0]) snprintf(r->sample, sizeof r->sample, "%s", e->d_name);
@@ -222,7 +238,7 @@ static void scan_dir(Library *lib, const char *dirpath, const char *label, int d
         snprintf(g->path, sizeof g->path, "%s", full);
         snprintf(g->file, sizeof g->file, "%s", e->d_name);
         snprintf(g->source, sizeof g->source, "%s", label);
-        if (have) g->file_size = (uint64_t)st.st_size;
+        g->file_size = path_size(full);
         g->fmt = ends_with_ci(e->d_name, ".cso") ? DISC_CSO : DISC_ISO;
         load_meta(g, tile_w, tile_h);
         if (!g->image_size) g->image_size = g->file_size;

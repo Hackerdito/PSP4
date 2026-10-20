@@ -3,6 +3,7 @@
 
 #include <signal.h>
 #include <sys/stat.h>
+#include <unistd.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -168,10 +169,15 @@ void plat_clock(int *hh, int *mm) {
 
 #define ENGINE_LAUNCH_FILE "/data/March33/launch.txt"
 
+// Only a hint: installs can live elsewhere (extended storage), so a launch is always attempted.
 int plat_engine_installed(void) {
-    struct stat st;
-    return stat("/user/app/" ENGINE_TITLE_ID "/app.pkg", &st) == 0 ||
-           stat("/system_data/priv/appmeta/" ENGINE_TITLE_ID "/param.sfo", &st) == 0;
+    static const char *const paths[] = {
+        "/user/app/" ENGINE_TITLE_ID, "/system_data/priv/appmeta/" ENGINE_TITLE_ID,
+        "/user/appmeta/" ENGINE_TITLE_ID, "/mnt/ext0/user/app/" ENGINE_TITLE_ID, NULL,
+    };
+    for (int i = 0; paths[i]; i++)
+        if (access(paths[i], F_OK) == 0) return 1;
+    return 0;
 }
 
 int plat_launch_engine(const char *game_path) {
