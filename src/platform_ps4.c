@@ -1,6 +1,7 @@
 // platform_ps4.c - PS4 video out, DualShock 4 input, clock and GoldHEN sandbox escape.
 #include "platform.h"
 
+#include <pthread.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -10,6 +11,7 @@
 #include <time.h>
 
 #include <orbis/libkernel.h>
+#include <orbis/AudioOut.h>
 #include <orbis/Pad.h>
 #include <orbis/SystemService.h>
 #include <orbis/UserService.h>
@@ -40,7 +42,8 @@ __asm__(
 // ---------------------------------------------------------------------------
 
 static int g_video = -1;
-static void *g_fb[2];
+#define FB_COUNT 3
+static void *g_fb[FB_COUNT];
 static int g_fb_idx = 0;
 static int64_t g_frame = 0;
 static OrbisKernelEqueue g_flip_queue;
@@ -76,6 +79,10 @@ void plat_log(const char *fmt, ...) {
 }
 
 static int video_init(void) {
+    // A new handle starts with no flips: restart the counters (the PS1 player opens the screen
+    // again in the same process, after the library screen closed it).
+    g_frame = 0;
+    g_fb_idx = 0;
     g_video = sceVideoOutOpen(ORBIS_VIDEO_USER_MAIN, ORBIS_VIDEO_OUT_BUS_MAIN, 0, 0);
     if (g_video < 0) return 0;
     if (sceKernelCreateEqueue(&g_flip_queue, "vault flip") < 0) return 0;
@@ -83,19 +90,18 @@ static int video_init(void) {
 
     const size_t align = 0x200000;
     size_t fb_size = ((size_t)SCREEN_W * SCREEN_H * 4 + align - 1) / align * align;
-    size_t total = fb_size * 2;
+    size_t total = fb_size * FB_COUNT;
     off_t phys = 0;
     void *mem = NULL;
     if (sceKernelAllocateDirectMemory(0, sceKernelGetDirectMemorySize(), total, align, 3, &phys) < 0) return 0;
     if (sceKernelMapDirectMemory(&mem, total, 0x33, 0, phys, align) < 0) return 0;
     g_fb_mem = mem; g_fb_phys = phys; g_fb_total = total;
-    g_fb[0] = mem;
-    g_fb[1] = (char *)mem + fb_size;
+    for (int i = 0; i < FB_COUNT; i++) g_fb[i] = (char *)mem + fb_size * i;
     memset(mem, 0, total);
 
     OrbisVideoOutBufferAttribute attr;
     sceVideoOutSetBufferAttribute(&attr, 0x80000000, 1, 0, SCREEN_W, SCREEN_H, SCREEN_W);
-    if (sceVideoOutRegisterBuffers(g_video, 0, g_fb, 2, &attr) != 0) return 0;
+    if (sceVideoOutRegisterBuffers(g_video, 0, g_fb, FB_COUNT, &attr) != 0) return 0;
     sceVideoOutSetFlipRate(g_video, 0);
     return 1;
 }
@@ -157,22 +163,125 @@ uint32_t plat_buttons(void) {
     return out;
 }
 
-void plat_present(const Canvas *c) {
-    uint32_t *dst = g_fb[g_fb_idx];
-    const uint32_t *src = c->px;
-    for (int i = 0, n = c->w * c->h; i < n; i++) dst[i] = src[i] | 0xFF000000u;
-
-    g_frame++;
-    sceVideoOutSubmitFlip(g_video, g_fb_idx, ORBIS_VIDEO_OUT_FLIP_VSYNC, g_frame);
-    for (;;) {
+// Waits until at most `pending` flips are still queued (giving up after ~0.5 s, so a flip the
+// system never ran can't freeze the app).
+static void wait_flips(int pending) {
+    for (int tries = 0; tries < 5; tries++) {
         OrbisVideoOutFlipStatus st;
         sceVideoOutGetFlipStatus(g_video, &st);
-        if (st.flipArg >= g_frame) break;
+        if (g_frame - (int64_t)st.flipArg <= pending) break;
         OrbisKernelEvent ev;
         int count;
-        if (sceKernelWaitEqueue(g_flip_queue, &ev, 1, &count, 0) != 0) break;
+        OrbisKernelUseconds timeout = 100000;
+        sceKernelWaitEqueue(g_flip_queue, &ev, 1, &count, &timeout);
     }
-    g_fb_idx ^= 1;
+}
+
+void plat_present(const Canvas *c) {
+    uint32_t *dst = plat_frame_begin();
+    const uint32_t *src = c->px;
+    for (int i = 0, n = c->w * c->h; i < n; i++) dst[i] = src[i] | 0xFF000000u;
+    plat_frame_end();
+    wait_flips(0);
+}
+
+uint32_t *plat_frame_begin(void) {
+    // With three buffers and at most one flip queued, this one is neither shown nor queued.
+    wait_flips(1);
+    return g_fb[g_fb_idx];
+}
+
+void plat_frame_end(void) {
+    g_frame++;
+    sceVideoOutSubmitFlip(g_video, g_fb_idx, ORBIS_VIDEO_OUT_FLIP_VSYNC, g_frame);
+    g_fb_idx = (g_fb_idx + 1) % FB_COUNT;
+}
+
+int plat_pad(PadState *out) {
+    memset(out, 0, sizeof *out);
+    out->lx = out->ly = out->rx = out->ry = 128;
+    if (g_pad < 0) return 0;
+    OrbisPadData d;
+    if (scePadReadState(g_pad, &d) != 0 || !d.connected) return 0;
+    static const struct { uint32_t pad, btn; } map[] = {
+        { ORBIS_PAD_BUTTON_UP, BTN_UP }, { ORBIS_PAD_BUTTON_DOWN, BTN_DOWN }, { ORBIS_PAD_BUTTON_LEFT, BTN_LEFT },
+        { ORBIS_PAD_BUTTON_RIGHT, BTN_RIGHT }, { ORBIS_PAD_BUTTON_CROSS, BTN_CROSS }, { ORBIS_PAD_BUTTON_CIRCLE, BTN_CIRCLE },
+        { ORBIS_PAD_BUTTON_TRIANGLE, BTN_TRIANGLE }, { ORBIS_PAD_BUTTON_SQUARE, BTN_SQUARE }, { ORBIS_PAD_BUTTON_L1, BTN_L1 },
+        { ORBIS_PAD_BUTTON_R1, BTN_R1 }, { ORBIS_PAD_BUTTON_L2, BTN_L2 }, { ORBIS_PAD_BUTTON_R2, BTN_R2 },
+        { ORBIS_PAD_BUTTON_L3, BTN_L3 }, { ORBIS_PAD_BUTTON_R3, BTN_R3 }, { ORBIS_PAD_BUTTON_OPTIONS, BTN_OPTIONS },
+        { ORBIS_PAD_BUTTON_TOUCH_PAD, BTN_TOUCH },
+    };
+    for (size_t i = 0; i < sizeof map / sizeof map[0]; i++) if (d.buttons & map[i].pad) out->buttons |= map[i].btn;
+    out->lx = d.leftStick.x; out->ly = d.leftStick.y;
+    out->rx = d.rightStick.x; out->ry = d.rightStick.y;
+    return 1;
+}
+
+// Audio: a ring the game fills and a thread that feeds the device 256 samples at a time (it blocks
+// while the device plays), so a slow frame doesn't starve the speakers. The game waits while the
+// ring holds more than ~70 ms, which paces it to the audio clock.
+#define RING_FRAMES 16384
+#define RING_HIGH   3456
+static int g_audio = -1;
+static int16_t g_ring[RING_FRAMES * 2];
+static volatile uint32_t g_ring_w, g_ring_r;   // frames written / read (free-running)
+static volatile int g_audio_run;
+static pthread_t g_audio_thread;
+
+static void *audio_thread(void *arg) {
+    (void)arg;
+    int16_t block[256 * 2];
+    while (g_audio_run) {
+        uint32_t avail = g_ring_w - g_ring_r;
+        if (avail >= 256) {
+            for (int i = 0; i < 256; i++) {
+                uint32_t k = (g_ring_r + i) % RING_FRAMES;
+                block[i * 2] = g_ring[k * 2]; block[i * 2 + 1] = g_ring[k * 2 + 1];
+            }
+            __atomic_store_n(&g_ring_r, g_ring_r + 256, __ATOMIC_RELEASE);
+        } else {
+            memset(block, 0, sizeof block);   // underrun: silence
+        }
+        sceAudioOutOutput(g_audio, block);
+    }
+    return NULL;
+}
+
+int plat_audio_open(void) {
+    if (g_audio >= 0) return 1;
+    sceAudioOutInit();
+    // 256-sample blocks at 48 kHz, stereo s16 (param 1 = S16 stereo); 0xFF = the system user.
+    g_audio = sceAudioOutOpen(0xFF, ORBIS_AUDIO_OUT_PORT_TYPE_MAIN, 0, 256, 48000, 1);
+    if (g_audio < 0) { plat_log("audio open failed %x", g_audio); g_audio = -1; return 0; }
+    g_ring_w = g_ring_r = 0;
+    g_audio_run = 1;
+    pthread_create(&g_audio_thread, NULL, audio_thread, NULL);
+    return 1;
+}
+
+void plat_audio_play(const int16_t *stereo, int frames) {
+    if (g_audio < 0) return;
+    while (g_ring_w - __atomic_load_n(&g_ring_r, __ATOMIC_ACQUIRE) > RING_HIGH) sceKernelUsleep(1000);
+    if (frames > RING_FRAMES - RING_HIGH) frames = RING_FRAMES - RING_HIGH;
+    for (int i = 0; i < frames; i++) {
+        uint32_t k = (g_ring_w + i) % RING_FRAMES;
+        g_ring[k * 2] = stereo[i * 2]; g_ring[k * 2 + 1] = stereo[i * 2 + 1];
+    }
+    __atomic_store_n(&g_ring_w, g_ring_w + frames, __ATOMIC_RELEASE);
+}
+
+void plat_audio_close(void) {
+    if (g_audio < 0) return;
+    g_audio_run = 0;
+    pthread_join(g_audio_thread, NULL);
+    sceAudioOutClose(g_audio);
+    g_audio = -1;
+}
+
+uint64_t plat_time_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000u + ts.tv_nsec / 1000;
 }
 
 void plat_idle(void) { sceKernelUsleep(16000); }

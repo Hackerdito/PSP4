@@ -62,6 +62,7 @@ void browser_show_root(Browser *b) {
     b->count = 0;
     b->sel = 0;
     b->scroll = 0;
+    b->top = 0;
     b->truncated = 0;
     b->error[0] = 0;
     for (int i = 0; kRoots[i].path; i++) {
@@ -111,6 +112,7 @@ int browser_enter(Browser *b, const char *path_in) {
     b->count = 0;
     b->sel = 0;
     b->scroll = 0;
+    b->top = 0;
     b->truncated = 0;
     b->error[0] = 0;
     struct dirent *e;

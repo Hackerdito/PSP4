@@ -4,6 +4,10 @@
 
 #include "gfx.h"
 #include "platform.h"
+#include "intro.h"
+#ifdef VAULT_HOST
+#include "ps1.h"
+#endif
 #include "ui.h"
 
 #include <string.h>
@@ -28,6 +32,10 @@ int main(void) {
         for (;;) {}
     }
     plat_log("fonts loaded: %d", nf);
+#ifdef VAULT_HOST
+    // VAULT_PS1=<game>: run the PS1 player directly (screenshots come from the script).
+    if (getenv("VAULT_PS1")) return ps1_run(getenv("VAULT_PS1")) == 0 ? 0 : 1;
+#endif
 
     Canvas frame = canvas_new(SCREEN_W, SCREEN_H);
     App *a = &g_app;
@@ -56,8 +64,9 @@ int main(void) {
         if (app_update(a, pressed, held)) dirty = 1;
         if (a->launch_request) {
             a->launch_request = 0;
-            app_draw_launching(a, &frame);
-            plat_present(&frame);
+            char sys[24], title[160];
+            app_launch_info(a, sys, sizeof sys, title, sizeof title);
+            intro_play(sys, title);
 #ifdef VAULT_EMBEDDED
             snprintf(out, out_len, "%s", a->launch_path);
             plat_log("starting %s", out);

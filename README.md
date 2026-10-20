@@ -1,8 +1,8 @@
-# SAMPSP4: juegos de PSP en tu PS4
+# SAMPSP4: juegos de PSP y PS1 en tu PS4
 
-VAULT es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de PSP en formato `.iso`, `.cso`, `EBOOT.PBP` y `.chd` y los muestra en una biblioteca moderna: portada, título real, ID de disco, tamaño y nivel de compresión.
+SAMPSP4 es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de **PSP** (`.iso`, `.cso`, `EBOOT.PBP`, `.chd`) y de **PS1** (`.cue/.bin`, `.chd`, `.iso`, `EBOOT.PBP`) y los muestra en una biblioteca moderna, separada en tres secciones: **ISO / CSO**, **EBOOT y Homebrew** y **PS1**.
 
-> **Estado: v1.0, con motor integrado.** VAULT trae su propio emulador de PSP dentro del mismo PKG: PPSSPP con el port a PS4 de [M33](https://github.com/iHaiDeeZ/M33). No hace falta instalar otra app. Detalles en [`engine/`](engine/README.md).
+> **Estado: v1.4, con dos motores integrados.** PSP: PPSSPP con el port a PS4 de [M33](https://github.com/iHaiDeeZ/M33). PS1: [PCSX-ReARMed](https://github.com/libretro/pcsx_rearmed) con su recompilador lightrec. Todo dentro del mismo PKG; no hace falta instalar otra app. Detalles en [`engine/`](engine/README.md).
 
 ## Instalar en tu PS4
 
@@ -17,16 +17,22 @@ VAULT es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de PSP 
 | --- | --- | --- |
 | **Recomendado** | `/data/vault/games/` | FTP de GoldHEN, puerto 2121 |
 | Disco interno | `/data/vault/PSP/GAME/` | FTP de GoldHEN, puerto 2121 |
-| USB | **cualquier carpeta**, en cualquier puerto (`usb0` a `usb7`) | VAULT revisa la memoria completa, hasta 3 carpetas de profundidad |
+| USB | **cualquier carpeta**, en cualquier puerto (`usb0` a `usb7`) | SAMPSP4 revisa la memoria completa, hasta 4 carpetas de profundidad |
 
-Formatos: `.iso`, `.cso` (CISO v1), `EBOOT.PBP` (juegos de PSN y homebrew, cada uno en su carpeta, p. ej. `PSP/GAME/NPUH10000/EBOOT.PBP`) y `.chd`. De ISO, CSO y EBOOT saca el título, el ID, `ICON0.PNG` (miniatura) y `PIC1.PNG` (portada grande); los `.chd` se muestran por nombre de archivo. Los EBOOT de PS1 (PSone Classics) se detectan y avisan que todavía no se pueden abrir. Las USB se revisan hasta 4 carpetas de profundidad.
+| Sección | Formatos |
+| --- | --- |
+| **ISO / CSO** (PSP) | `.iso`, `.cso` (CISO v1), `.chd` de UMD |
+| **EBOOT y Homebrew** (PSP) | `EBOOT.PBP`, cada uno en su carpeta (p. ej. `PSP/GAME/NPUH10000/EBOOT.PBP`) |
+| **PS1** | `.cue` + `.bin`, `.chd` de CD, `.iso` de PS1, `EBOOT.PBP` de PSone Classics |
+
+De PSP saca el título, el ID, `ICON0.PNG` (miniatura) y `PIC1.PNG` (portada grande). De PS1 lee el ID del disco (`SYSTEM.CNF`); el nombre viene del archivo. Un `.bin` que tiene su `.cue` al lado no se lista aparte.
 
 ## Controles
 
 | Botón | Acción |
 | --- | --- |
 | ← → (cruceta o stick) | Moverse por la biblioteca |
-| L1 / R1 | Filtro: Todos · ISO · CSO · EBOOT · CHD |
+| L1 / R1 | Sección: ISO / CSO · EBOOT y Homebrew · PS1 |
 | ✕ | Jugar |
 | △ | Detalles del archivo |
 | □ | **Explorar**: navega USB y disco interno |
@@ -40,15 +46,15 @@ Muestra las unidades conectadas (USB0 a USB7, juegos de M33, disco interno y tod
 | --- | --- |
 | ↑ ↓ | Moverse |
 | L1 / R1 | Página arriba o abajo |
-| ✕ | Abrir una carpeta, o jugar un `.iso` / `.cso` / `EBOOT.PBP` / `.chd` |
+| ✕ | Abrir una carpeta, o jugar un `.iso` / `.cso` / `EBOOT.PBP` / `.chd` / `.cue` / `.bin` |
 | △ | Agregar la carpeta actual a tu biblioteca (se guarda en `/data/vault/folders.txt`) |
 | ○ | Subir una carpeta; en la lista de unidades, cerrar |
 
 ## Cómo se abre un juego
 
-Al presionar ✕, la pantalla de VAULT se cierra y el motor arranca el juego en la misma app.
+Al presionar ✕ suena la intro de SAMPSP4 (logo y sonido propios, unos 2 segundos; ✕ u ○ la saltan) y el motor arranca el juego en la misma app.
 
-**Durante el juego** (controles del port de M33):
+**Juegos de PSP** (controles del port de M33):
 
 | DualShock 4 | PSP |
 | --- | --- |
@@ -60,7 +66,22 @@ Al presionar ✕, la pantalla de VAULT se cierra y el motor arranca el juego en 
 | R2 | Avance rápido |
 | **L3 + R3** | Menú rápido: guardar y cargar estado, trucos, resolución, **Volver a SAMPSP4** |
 
-Tus partidas quedan en `/data/vault/psp/PSP/SAVEDATA`. Si algo falla, `/data/vault/psp/boot-trace.log` y `crash.log` dicen hasta dónde llegó.
+Tus partidas quedan en `/data/vault/psp/PSP/SAVEDATA`. Si algo falla, `/data/vault/psp/boot-trace.log` (y `boot-trace.prev.log`, la sesión anterior) y `crash.log` dicen hasta dónde llegó.
+
+**Juegos de PS1:**
+
+| DualShock 4 | PS1 |
+| --- | --- |
+| ✕ ○ □ △, cruceta, L1 R1 L2 R2 | Igual que en el control de PS1 |
+| Stick izquierdo | Cruceta |
+| OPTIONS | START |
+| Clic en el touchpad | SELECT |
+| **L3 + R3** (o touchpad + OPTIONS) | Menú: continuar, guardar y cargar estado, reiniciar, **Salir a SAMPSP4** |
+
+- Memory card: `/data/vault/ps1/saves/<juego>.srm` (se guarda sola cada 5 s si cambió y al salir; mismo formato que RetroArch).
+- Estados: `/data/vault/ps1/states/`.
+- BIOS: opcional. Sin BIOS usa la HLE de PCSX-ReARMed; con tu propia `scph1001.bin` (u otra) en `/data/vault/ps1/bios/` la compatibilidad es mayor.
+- Registro: `/data/vault/ps1/ps1.log`.
 
 ## Compilar
 
@@ -83,9 +104,15 @@ También sirve un release oficial del [OpenOrbis PS4 Toolchain](https://github.c
 
 ```bash
 pip install pycdlib pillow
-python3 tools/make-testdata.py       # crea discos PSP falsos en ./testdata
+python3 tools/make-testdata.py       # crea discos PSP y PS1 falsos en ./testdata
+# núcleo PS1 para Linux (una vez): PCSX-ReARMed con el Makefile.libretro, platform=unix STATIC_LINKING=1
+# HAVE_PHYSICAL_CDROM=0, empaquetado como engine/build-ps1.sh en build/host/ps1core-host.o
 make host && ./build/host/vault-host # renderiza capturas en build/host/*.png
+VAULT_SCRIPT=secciones ./build/host/vault-host                     # otras: explorar, eboot, scroll, intro
+VAULT_SCRIPT=ps1 VAULT_PS1="testdata/usb0/PS1/Midnight Rally (USA).cue" ./build/host/vault-host
 ```
+
+El disco PS1 de prueba trae un programa MIPS diminuto que pinta barras de color: sirve para comprobar el recompilador, la GPU y el escalado sin un juego real.
 
 ## Estructura
 
@@ -109,11 +136,14 @@ tools/              SDK, stubs, datos de prueba, arte del paquete
 - [x] **Fase 1:** paquete instalable, biblioteca ISO/CSO, portadas, filtros y detalles.
 - [x] **Fase 2:** jugar con el motor M33 instalado aparte.
 - [x] **Fase 3:** motor PSP integrado en VAULT (un solo PKG).
-- [ ] **Fase 4:** favoritos, recientes, volver a VAULT al salir de un juego.
+- [x] **Fase 4:** volver a SAMPSP4 al salir de un juego, EBOOT.PBP y CHD, secciones, intro.
+- [x] **Fase 5:** motor PS1 integrado.
+- [ ] **Siguiente:** descargar juegos desde tu PC en la red, favoritos y recientes.
 
 ## Créditos y licencias
 
 - VAULT: GPL-3.0-or-later (ver `LICENSE`).
+- [PCSX-ReARMed](https://github.com/libretro/pcsx_rearmed) (notaz y colaboradores, con lightrec y GNU Lightning): el motor PS1, GPL-2.0-or-later.
 - [PPSSPP](https://github.com/hrydgard/ppsspp) (Henrik Rydgård y colaboradores) y su port a PS4 [M33](https://github.com/iHaiDeeZ/M33) de ShiroKlein, con la base de Resonance, DolphinPS4 y Crema: el motor, GPL-2.0-or-later. Mesa (RADV), MIT. FFmpeg, LGPL.
 - [OpenOrbis PS4 Toolchain](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain), musl, create-fself, create-gp4 y LibOrbisPkg: GPL-3.0 / MIT.
 - [GoldHEN Plugins SDK](https://github.com/GoldHEN/GoldHEN_Plugins_SDK): MIT (llamada de jailbreak).
@@ -121,4 +151,4 @@ tools/              SDK, stubs, datos de prueba, arte del paquete
 - Space Grotesk y JetBrains Mono: SIL Open Font License 1.1.
 - Nombres de símbolos de [ps4libdoc](https://github.com/idc/ps4libdoc).
 
-Usa VAULT solo con respaldos de juegos que sean tuyos.
+Usa SAMPSP4 solo con respaldos de juegos que sean tuyos.

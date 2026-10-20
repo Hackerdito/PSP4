@@ -126,6 +126,78 @@ def make_pbp(path, sfo, icon=b'', pic1=b'', psar=b''):
         f.write(b'\0PBP' + struct.pack('<I', 0x10000) + struct.pack('<8I', *offs) + b''.join(parts))
 
 
+def make_ps1_bin(path, title_id, exe=None):
+    """A PS1 disc: ISO9660 with SYSTEM.CNF, stored as raw 2352-byte mode 2 sectors (.bin) + .cue."""
+    import pycdlib
+    iso = pycdlib.PyCdlib()
+    iso.new(interchange_level=1)
+    cnf = ('BOOT = cdrom:\\%s;1\r\nTCB = 4\r\nEVENT = 10\r\nSTACK = 801FFFF0\r\n' % title_id).encode()
+    iso.add_fp(io.BytesIO(cnf), len(cnf), '/SYSTEM.CNF;1')
+    if exe is None:
+        exe = bars_exe()
+    iso.add_fp(io.BytesIO(exe), len(exe), '/' + title_id + ';1')
+    buf = io.BytesIO()
+    iso.write_fp(buf)
+    data = buf.getvalue()
+    with open(path, 'wb') as f:
+        for i in range(0, len(data), 2048):
+            m, sec = divmod(i // 2048 + 150, 75 * 60)
+            sec, fr = divmod(sec, 75)
+            bcd = lambda v: (v // 10) << 4 | v % 10
+            f.write(b'\0' + b'\xff' * 10 + b'\0' + bytes([bcd(m), bcd(sec), bcd(fr), 2]) + b'\0' * 8)
+            f.write(data[i:i + 2048].ljust(2048, b'\0') + b'\0' * 280)
+    name = os.path.basename(path)
+    with open(path[:-4] + '.cue', 'w') as f:
+        f.write('FILE "%s" BINARY\n  TRACK 01 MODE2/2352\n    INDEX 01 00:00:00\n' % name)
+
+
+def bars_exe():
+    """A tiny PS-X EXE that sets a 320x240 screen and fills it with colour bars (GPU fill commands)."""
+    T0, T1 = 8, 9
+    code = []
+    def li(rt, v):
+        code.append(0x3C000000 | rt << 16 | (v >> 16))
+        code.append(0x34000000 | rt << 21 | rt << 16 | (v & 0xFFFF))
+    def put(v, off):
+        li(T1, v)
+        code.append(0xAC000000 | T0 << 21 | T1 << 16 | off)
+    li(T0, 0x1F801810)
+    for v in [0x00000000, 0x05000000, 0x06C60260, 0x07040010, 0x08000001, 0x03000000]:
+        put(v, 4)                                   # GP1: reset, display area, ranges, 320x240, on
+    def fill(rgb, x, y, w, h):
+        r, g, b = rgb
+        put(0x02000000 | b << 16 | g << 8 | r, 0)  # GP0 fill rectangle
+        put(y << 16 | x, 0)
+        put(h << 16 | w, 0)
+    fill((16, 24, 64), 0, 0, 320, 240)
+    fill((63, 123, 255), 40, 40, 80, 150)
+    fill((255, 64, 64), 140, 40, 40, 150)
+    fill((61, 245, 200), 200, 40, 40, 150)
+    fill((240, 240, 240), 40, 200, 240, 16)
+    here = 0x80010000 + len(code) * 4
+    code += [0x08000000 | ((here >> 2) & 0x3FFFFFF), 0]   # loop forever
+    body = b''.join(struct.pack('<I', c) for c in code)
+    body = body.ljust((len(body) + 2047) // 2048 * 2048, b'\0')
+    h = bytearray(2048)
+    h[0:8] = b'PS-X EXE'
+    struct.pack_into('<IIII', h, 0x10, 0x80010000, 0, 0x80010000, len(body))
+    struct.pack_into('<II', h, 0x30, 0x801FFFF0, 0)
+    h[0x4C:0x4C + 55] = b'Sony Computer Entertainment Inc. for North America area'
+    return bytes(h) + body
+
+
+def make_chd(path, tag):
+    """Just enough of a CHD v5 for the scanner: header + one metadata entry (CHT2 = CD, 'DVD ' = UMD)."""
+    hdr = bytearray(124)
+    hdr[0:8] = b'MComprHD'
+    hdr[8:12] = struct.pack('>I', 124)
+    hdr[12:16] = struct.pack('>I', 5)
+    hdr[48:56] = struct.pack('>Q', 124)
+    meta = tag + struct.pack('>I', 0x01000010) + struct.pack('>Q', 0) + b'TRACK:1 TYPE:MODE2_RAW'
+    with open(path, 'wb') as f:
+        f.write(bytes(hdr) + meta + b'\0' * 1024)
+
+
 def main():
     os.makedirs(INTERNAL, exist_ok=True)
     os.makedirs(USB, exist_ok=True)
@@ -148,8 +220,14 @@ def main():
              make_sfo([('TITLE', 'Retro Racer PS1'), ('DISC_ID', 'SLUS00594'), ('CATEGORY', 'ME')]),
              png(art((80, 80), (255, 200, 80), (90, 40, 10), 9)), psar=b'PSISOIMG0000' + b'\0' * 64)
     open(os.path.join(USB, 'PARAM.PBP'), 'wb').write(b'\0PBP' + b'\0' * 36)   # update data: not a game
-    with open(os.path.join(INTERNAL, 'Shadow Circuit (USA).chd'), 'wb') as f:
-        f.write(b'MComprHD' + b'\0' * 4096)
+    make_chd(os.path.join(INTERNAL, 'Shadow Circuit (USA).chd'), b'DVD ')
+    # PS1: a .bin/.cue pair, a CD .chd, and a homebrew EBOOT for the EBOOT section.
+    ps1 = os.path.join(OUT, 'usb0/PS1'); os.makedirs(ps1, exist_ok=True)
+    make_ps1_bin(os.path.join(ps1, 'Midnight Rally (USA).bin'), 'SLUS_012.34')
+    make_chd(os.path.join(ps1, 'Crystal Tower (Europe).chd'), b'CHT2')
+    d = os.path.join(INTERNAL, 'HOMEBREW_PONG'); os.makedirs(d, exist_ok=True)
+    make_pbp(os.path.join(d, 'EBOOT.PBP'), make_sfo([('TITLE', 'Pong Deluxe (homebrew)'), ('CATEGORY', 'MG')]),
+             png(art((144, 80), (90, 230, 160), (10, 60, 40), 11)))
 
 
 if __name__ == '__main__':

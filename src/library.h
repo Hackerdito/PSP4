@@ -6,6 +6,10 @@
 
 #define MAX_GAMES 512
 
+// Library sections: PSP discs (ISO / CSO / CHD), EBOOT.PBP (PSN games + homebrew), PlayStation 1.
+typedef enum { SYS_PSP = 0, SYS_EBOOT = 1, SYS_PS1 = 2 } GameSystem;
+#define SYS_COUNT 3
+
 typedef struct {
     char path[512];
     char file[256];
@@ -14,7 +18,8 @@ typedef struct {
     char source[16];       // "USB0", "Interno"
     DiscFormat fmt;
     int is_psp;            // PARAM.SFO found
-    int is_ps1;            // a PS1 classic in an EBOOT.PBP (needs the PS1 engine; not playable yet)
+    int is_ps1;            // a PlayStation 1 game (disc image or PSone Classic EBOOT)
+    GameSystem sys;        // which library section it's listed in
     uint64_t file_size;    // bytes on storage
     uint64_t image_size;   // uncompressed bytes
     uint32_t c1, c2;       // palette for glows / fallback art

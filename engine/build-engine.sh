@@ -126,6 +126,8 @@ ppsspp() {
         mkdir -p "$S/ext/harfbuzz"; cp -r "$PSB/src/harfbuzz/src" "$PSB/src/harfbuzz/COPYING" "$S/ext/harfbuzz/"
         git -C "$M33" apply "$HERE/vault-port.patch"
     fi
+    # The PS1 engine first: ps4.cmake links its object into the eboot.
+    M33="$M33" PSB="$PSB" bash "$HERE/build-ps1.sh"
     HOME="$(dirname "$M33")" bash "$M33/scripts/configure-ppsspp.sh" -DVAULT_DIR="$REPO"
     HOME="$(dirname "$M33")" JOBS="$(nproc)" bash "$M33/scripts/build-ppsspp.sh"
 }

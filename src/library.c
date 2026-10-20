@@ -159,7 +159,8 @@ static void load_meta(Game *g, int tile_w, int tile_h) {
     }
     if (g->fmt == DISC_CHD) {   // compressed hunks (zlib/lzma/flac/zstd): shown by file name
         g->image_size = g->file_size;
-        g->is_psp = 1;
+        g->is_ps1 = chd_is_cd(g->path);
+        g->is_psp = !g->is_ps1;
         return;
     }
 
@@ -167,10 +168,17 @@ static void load_meta(Game *g, int tile_w, int tile_h) {
     if (!d) return;
     g->fmt = disc_format(d);
     g->image_size = disc_size(d);
-    uint8_t *sfo = disc_read_file(d, "PSP_GAME/PARAM.SFO", &len, 64 * 1024);
-    if (sfo) { apply_sfo(g, sfo, len); free(sfo); }
-    uint8_t *png = disc_read_file(d, "PSP_GAME/ICON0.PNG", &len, 512 * 1024);
-    if (png) { apply_icon(g, png, len, tile_w, tile_h); free(png); }
+    if (disc_file_bytes(d) > g->file_size) g->file_size = disc_file_bytes(d);   // a .cue's .bin
+    uint8_t *sfo = NULL;
+    if (g->fmt != DISC_CUE && g->fmt != DISC_BIN) sfo = disc_read_file(d, "PSP_GAME/PARAM.SFO", &len, 64 * 1024);
+    if (sfo) {
+        apply_sfo(g, sfo, len);
+        free(sfo);
+        uint8_t *png = disc_read_file(d, "PSP_GAME/ICON0.PNG", &len, 512 * 1024);
+        if (png) { apply_icon(g, png, len, tile_w, tile_h); free(png); }
+    } else if (ps1_disc_id(d, g->disc_id, sizeof g->disc_id) || g->fmt == DISC_CUE || g->fmt == DISC_BIN) {
+        g->is_ps1 = 1;   // no PSP_GAME, but SYSTEM.CNF (or a raw CD image): PlayStation 1
+    }
     disc_close(d);
 }
 
@@ -231,6 +239,16 @@ static void count_ext(ExtCount *ec, int *nec, const char *name) {
 
 static FILE *g_log;
 
+static int folder_has_cue(const char *dirpath) {
+    DIR *d = opendir(dirpath);
+    if (!d) return 0;
+    struct dirent *e;
+    int found = 0;
+    while (!found && (e = readdir(d))) found = disc_format_from_name(e->d_name) == DISC_CUE;
+    closedir(d);
+    return found;
+}
+
 static void scan_dir(Library *lib, const char *dirpath, const char *label, int depth, int max_depth,
                      DirReport *r, ExtCount *ec, int *nec, int tile_w, int tile_h) {
     DIR *dir = opendir(dirpath);
@@ -252,6 +270,8 @@ static void scan_dir(Library *lib, const char *dirpath, const char *label, int d
         int fmt = disc_format_from_name(e->d_name);
         // PARAM.PBP is a game update's data, not a game.
         int is_game = fmt >= 0 && strcasecmp(e->d_name, "PARAM.PBP") != 0;
+        // A .bin with a .cue next to it is one of the cue's tracks: the .cue is the game.
+        if (fmt == DISC_BIN && folder_has_cue(dirpath)) is_game = 0;
         if (g_log) fprintf(g_log, "  %s %s (%lld bytes)\n", is_game ? "[juego]" : "[otro] ", full, (long long)path_size(full));
         if (!is_game) {
             count_ext(ec, nec, e->d_name);
@@ -270,6 +290,7 @@ static void scan_dir(Library *lib, const char *dirpath, const char *label, int d
         g->file_size = path_size(full);
         g->fmt = (DiscFormat)fmt;
         load_meta(g, tile_w, tile_h);
+        g->sys = g->is_ps1 ? SYS_PS1 : g->fmt == DISC_PBP ? SYS_EBOOT : SYS_PSP;
         if (!g->image_size) g->image_size = g->file_size;
         lib->total_bytes += g->file_size;
         lib->count++;

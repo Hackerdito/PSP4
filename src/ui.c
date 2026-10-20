@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v1.2"
+#define VAULT_VERSION "v1.4"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
@@ -31,19 +31,23 @@
 #define COVER_W   644
 #define COVER_H   362
 
-#define N_FILTERS 5
-static const char *kFilterNames[N_FILTERS] = { "Todos", "ISO", "CSO", "EBOOT", "CHD" };
+// Library sections (GameSystem order), switched with L1 / R1.
+static const char *kSections[SYS_COUNT] = { "ISO / CSO", "EBOOT y Homebrew", "PS1" };
+static const uint32_t kSectionColor[SYS_COUNT] = { 0x3F7BFF, 0xB9A8FF, 0xC9CED6 };
 #define C_PBP     0xB9A8FF
 #define C_CHD     0xFFD166
 
 // ------------------------------------------------------------------ helpers
 
 static uint32_t fmt_color(DiscFormat f) {
-    return f == DISC_CSO ? C_CSO : f == DISC_PBP ? C_PBP : f == DISC_CHD ? C_CHD : C_ACCENT;
+    return f == DISC_CSO ? C_CSO : f == DISC_PBP ? C_PBP : f == DISC_CHD ? C_CHD : (f == DISC_CUE || f == DISC_BIN) ? 0xC9CED6 : C_ACCENT;
 }
 static const char *fmt_name(DiscFormat f) { return disc_format_name(f); }
-// Filter chip i: 0 all, then one per format in DiscFormat order.
-static int filter_match(int filter, DiscFormat f) { return filter == 0 || (int)f == filter - 1; }
+static int section_count(App *a, int s) {
+    int n = 0;
+    for (int k = 0; k < a->lib.count; k++) n += (int)a->lib.games[k].sys == s;
+    return n;
+}
 
 static Game *selected(App *a) {
     if (a->view_count == 0) return NULL;
@@ -149,8 +153,7 @@ static void fallback_art(Canvas *c, float x, float y, float w, float h, float r,
 static void rebuild_view(App *a) {
     a->view_count = 0;
     for (int i = 0; i < a->lib.count; i++) {
-        DiscFormat f = a->lib.games[i].fmt;
-        if (!filter_match(a->filter, f)) continue;
+        if ((int)a->lib.games[i].sys != a->filter) continue;
         a->view[a->view_count++] = i;
     }
     if (a->sel >= a->view_count) a->sel = a->view_count ? a->view_count - 1 : 0;
@@ -169,6 +172,9 @@ void app_rescan(App *a) {
     image_free(&a->cover);
     a->cover_for = -1;
     library_scan(&a->lib, TILE_W, TILE_H);
+    // Stay on the current section if it has games, else open the first one that does.
+    if (!section_count(a, a->filter))
+        for (int i = 0; i < SYS_COUNT; i++) if (section_count(a, i)) { a->filter = i; break; }
     rebuild_view(a);
     plat_log("scan: %d games in %d folders", a->lib.count, a->lib.folders_found);
 }
@@ -181,12 +187,6 @@ static void update_scroll_target(App *a) {
 }
 
 static void request_launch(App *a, const char *path) {
-    if (disc_format_from_name(path) == DISC_PBP && pbp_is_ps1(path)) {
-        // PS1 classics need a PS1 engine; it isn't in SAMPSP4 yet.
-        if (a->browser.open) snprintf(a->browser.toast, sizeof a->browser.toast, "Es un juego de PS1: SAMPSP4 todav\xC3\xAD" "a no los abre");
-        else a->modal = MODAL_PS1;
-        return;
-    }
     snprintf(a->launch_path, sizeof a->launch_path, "%s", path);
     a->launch_request = 1;
 }
@@ -239,9 +239,11 @@ static int browser_update(App *a, uint32_t pressed) {
         dirty = 1;
     }
     // Keep the selection inside the visible rows, scrolling smoothly.
-    float target = b->scroll;
-    if (b->sel < target) target = b->sel;
-    if (b->sel >= target + BROWSER_ROWS) target = b->sel - BROWSER_ROWS + 1;
+    // (Measured from the row the list is heading to, not from the animated position: comparing with
+    // a half-way scroll value stopped the list one row short and the selection fell off the bottom.)
+    if (b->sel < b->top) b->top = b->sel;
+    if (b->sel >= b->top + BROWSER_ROWS) b->top = b->sel - BROWSER_ROWS + 1;
+    float target = (float)b->top;
     float d = target - b->scroll;
     if (fabsf(d) > 0.02f) { b->scroll += d * 0.35f; dirty = 1; }
     else if (d != 0) { b->scroll = target; dirty = 1; }
@@ -260,7 +262,7 @@ int app_update(App *a, uint32_t pressed, uint32_t held) {
     if ((pressed & BTN_RIGHT) && a->sel < a->view_count - 1) a->sel++;
     if ((pressed & BTN_LEFT) && a->sel > 0) a->sel--;
     if (pressed & (BTN_R1 | BTN_L1)) {
-        a->filter = (a->filter + ((pressed & BTN_R1) ? 1 : 2)) % N_FILTERS;
+        a->filter = (a->filter + ((pressed & BTN_R1) ? 1 : SYS_COUNT - 1)) % SYS_COUNT;
         a->sel = 0;
         rebuild_view(a);
         dirty = 1;
@@ -302,23 +304,22 @@ static void draw_header(App *a, Canvas *c, int hh, int mm) {
     wx += draw_text(c, FONT_DISPLAY, 32, wx, y - 6, "PSP", C_BRAND, 1, 3);
     draw_text(c, FONT_DISPLAY, 32, wx, y - 6, "4", C_TEXT, 1, 3);
 
-    // Format filter (L1 / R1).
+    // Sections (L1 / R1): a dot in the section's color, its name and how many games it has.
     float x = PAD_X + 260;
     x += key_chip(c, x, y - 17, "L1") + 14;
-    for (int i = 0; i < N_FILTERS; i++) {
-        int n = 0;
-        for (int k = 0; k < a->lib.count; k++)
-            if (filter_match(i, a->lib.games[k].fmt)) n++;
-        if (n == 0 && i > 2 && a->filter != i) continue;   // EBOOT / CHD chips only when there are some
-        char label[32];
-        snprintf(label, sizeof label, "%s  %d", kFilterNames[i], n);
-        float w = text_width(FONT_BODY, 20, label, 0) + 52;
+    for (int i = 0; i < SYS_COUNT; i++) {
+        char n[8];
+        snprintf(n, sizeof n, "%d", section_count(a, i));
         int on = a->filter == i;
-        fill_rrect(c, x, y - 40, w, 46, 23, on ? C_TEXT : 0xFFFFFF, on ? 1 : 0.06f);
-        draw_text(c, FONT_BODY, 20, x + 26, y - 10, label, on ? C_INK : C_SOFT, 1, 0);
-        x += w + 8;
+        float tw = text_width(FONT_DISPLAY, 22, kSections[i], 0), nw = text_width(FONT_MONO, 18, n, 0);
+        float w = 30 + 14 + tw + 12 + nw + 26;
+        fill_rrect(c, x, y - 42, w, 50, 25, on ? C_TEXT : 0xFFFFFF, on ? 1 : 0.06f);
+        fill_rrect(c, x + 22, y - 23, 12, 12, 6, kSectionColor[i], 1);
+        draw_text(c, FONT_DISPLAY, 22, x + 44, y - 9, kSections[i], on ? C_INK : C_SOFT, 1, 0);
+        draw_text(c, FONT_MONO, 18, x + 44 + tw + 12, y - 10, n, on ? 0x5A6070 : C_MUTED, 1, 0);
+        x += w + 10;
     }
-    key_chip(c, x + 6, y - 17, "R1");
+    key_chip(c, x + 4, y - 17, "R1");
 
     // Storage summary + clock on the right.
     char clock[8], info[96], sz[24];
@@ -414,15 +415,21 @@ static void draw_hero(App *a, Canvas *c) {
     Game *g = selected(a);
     float x = PAD_X, y = 236;
     if (!g) {
-        draw_text(c, FONT_MONO, 18, x, y, a->lib.count ? "SIN RESULTADOS EN ESTE FILTRO" : "BIENVENIDO A SAMPSP4", C_ACCENT, 1, 3.6f);
+        draw_text(c, FONT_MONO, 18, x, y, a->lib.count ? "SECCI\xC3\x93N VAC\xC3\x8D" "A" : "BIENVENIDO A SAMPSP4", C_ACCENT, 1, 3.6f);
         draw_text(c, FONT_DISPLAY, 76, x - 4, y + 88, a->lib.count ? "Nada por aqu\xC3\xAD" : "Tu biblioteca est\xC3\xA1 vac\xC3\xAD" "a", C_TEXT, 1, -2);
         if (a->lib.count) {
-            draw_text(c, FONT_BODY, 26, x, y + 170, "Cambia el filtro con L1 / R1.", C_SOFT, 1, 0);
+            static const char *kHint[SYS_COUNT] = {
+                "Aqu\xC3\xAD van tus juegos de PSP en .iso, .cso o .chd.",
+                "Aqu\xC3\xAD van los EBOOT.PBP: juegos de PSN y homebrew de PSP.",
+                "Aqu\xC3\xAD van tus juegos de PS1: .cue/.bin, .chd, .iso o EBOOT.PBP.",
+            };
+            draw_text(c, FONT_BODY, 26, x, y + 170, kHint[a->filter], C_SOFT, 1, 0);
+            draw_text(c, FONT_BODY, 26, x, y + 210, "Cambia de secci\xC3\xB3n con L1 / R1.", C_MUTED, 1, 0);
         } else {
             draw_empty_report(a, c, x, y + 146);
         }
         fallback_art(c, COVER_X, COVER_Y, COVER_W, COVER_H, 28, 0x1B2230, 0x24304A);
-        draw_text(c, FONT_DISPLAY, 44, COVER_X + 32, COVER_Y + COVER_H - 32, "PSP \xC2\xB7 ISO \xC2\xB7 CSO \xC2\xB7 PBP", C_TEXT, 0.9f, -0.5f);
+        draw_text(c, FONT_DISPLAY, 44, COVER_X + 32, COVER_Y + COVER_H - 32, kSections[a->filter], C_TEXT, 0.9f, -0.5f);
         return;
     }
 
@@ -445,7 +452,7 @@ static void draw_hero(App *a, Canvas *c) {
     float by = ty - size * 0.98f + 40, bx = x;
     char sz[24], ratio[32];
     bx += pill(c, bx, by, fmt_name(g->fmt), fmt_color(g->fmt), 1, C_INK, FONT_MONO, 18, 16, 40) + 12;
-    bx += pill(c, bx, by, g->is_ps1 ? "PS1 \xC2\xB7 pronto" : g->is_psp ? "PSP" : "Desconocido", 0xFFFFFF, 0.08f, C_SOFT, FONT_MONO, 18, 16, 40) + 12;
+    bx += pill(c, bx, by, g->is_ps1 ? "PlayStation" : g->is_psp ? "PSP" : "Desconocido", 0xFFFFFF, 0.08f, C_SOFT, FONT_MONO, 18, 16, 40) + 12;
     format_size(g->image_size, sz, sizeof sz);
     bx += pill(c, bx, by, sz, 0xFFFFFF, 0.08f, C_SOFT, FONT_MONO, 18, 16, 40) + 12;
     if (g->fmt == DISC_CSO && g->image_size) {
@@ -488,7 +495,7 @@ static void draw_library(App *a, Canvas *c) {
     float y = 668;
     draw_text(c, FONT_DISPLAY, 32, PAD_X, y, "Tu biblioteca", C_TEXT, 1, 0);
     char sub[96];
-    snprintf(sub, sizeof sub, "%d de %d \xC2\xB7 %s", a->view_count ? a->sel + 1 : 0, a->view_count, kFilterNames[a->filter]);
+    snprintf(sub, sizeof sub, "%d de %d \xC2\xB7 %s", a->view_count ? a->sel + 1 : 0, a->view_count, kSections[a->filter]);
     draw_text(c, FONT_MONO, 18, PAD_X + 248, y - 2, sub, C_MUTED, 1, 0);
 
     if (!a->view_count) {
@@ -517,7 +524,7 @@ static void draw_footer(App *a, Canvas *c) {
     fill_rect(c, 0, (int)y, SCREEN_W, SCREEN_H - (int)y, C_BG, 0.72f);
     fill_rect(c, 0, (int)y, SCREEN_W, 1, 0xFFFFFF, 0.08f);
     float cy = y + 40;
-    float lw = draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "SAMPSP4 " VAULT_VERSION " \xC2\xB7 Motor PSP integrado", C_MUTED, 1, 0);
+    float lw = draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "SAMPSP4 " VAULT_VERSION " \xC2\xB7 PSP + PS1", C_MUTED, 1, 0);
     if (!a->browser.open && a->modal == MODAL_NONE) {
         float kx = PAD_X + lw + 40;
         kx += key_chip(c, kx, cy, "OPTIONS") + 10;
@@ -606,8 +613,8 @@ static void draw_modal(App *a, Canvas *c) {
     text_ellipsize(FONT_MONO, 20, friendly, w - 112 - 220, path, sizeof path, 0);
     const char *rows[][2] = {
         { "Archivo", path },
-        { "Formato", g->fmt == DISC_CSO ? "CSO (ISO comprimido)" : g->fmt == DISC_PBP ? (g->is_ps1 ? "EBOOT.PBP (PS1, a\xC3\xBAn no)" : "EBOOT.PBP (PSN / homebrew)")
-                    : g->fmt == DISC_CHD ? "CHD (comprimido)" : "ISO" },
+        { "Formato", g->fmt == DISC_CSO ? "CSO (ISO comprimido)" : g->fmt == DISC_PBP ? (g->is_ps1 ? "EBOOT.PBP (PSone Classic)" : "EBOOT.PBP (PSN / homebrew)")
+                    : g->fmt == DISC_CHD ? "CHD (comprimido)" : g->fmt == DISC_CUE ? "BIN / CUE" : g->fmt == DISC_BIN ? "BIN" : "ISO" },
         { "ID de disco", g->disc_id[0] ? g->disc_id : "\xE2\x80\x94" },
         { "En disco", disk },
         { "Tama\xC3\xB1o real", real },
@@ -781,4 +788,14 @@ void app_draw_launching(App *a, Canvas *c) {
     const char *sub = "Abriendo el motor PSP\xE2\x80\xA6";
     float sw = text_width(FONT_MONO, 20, sub, 3);
     draw_text(c, FONT_MONO, 20, (SCREEN_W - sw) / 2, cy + ch + 186, sub, C_ACCENT, 1, 3);
+}
+
+void app_launch_info(App *a, char *sys, int sys_len, char *title, int title_len) {
+    Game *g = NULL;
+    for (int i = 0; i < a->lib.count; i++)
+        if (strcmp(a->lib.games[i].path, a->launch_path) == 0) { g = &a->lib.games[i]; break; }
+    const char *slash = strrchr(a->launch_path, '/');
+    snprintf(title, title_len, "%s", g ? g->title : slash ? slash + 1 : a->launch_path);
+    int ps1 = g ? g->is_ps1 : 0;
+    snprintf(sys, sys_len, "%s", ps1 ? "PLAYSTATION" : "PSP");
 }

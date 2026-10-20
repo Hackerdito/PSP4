@@ -9,9 +9,12 @@ VERSION     := 01.06
 TITLE_ID    := VALT00001
 CONTENT_ID  := IV0000-VALT00001_00-VAULTPSPLAUNCHER
 
-SRCS        := src/main.c src/ui.c src/gfx.c src/disc.c src/library.c src/browser.c
+SRCS        := src/main.c src/ui.c src/gfx.c src/disc.c src/library.c src/browser.c src/intro.c
 PS4_SRCS    := $(SRCS) src/platform_ps4.c
-HOST_SRCS   := $(SRCS) src/platform_host.c
+HOST_SRCS   := $(SRCS) src/platform_host.c src/ps1.c
+# The PS1 core for the desktop build: PCSX-ReARMed built for Linux and packed like
+# engine/build-ps1.sh does for the PS4 (retro_* renamed ps1core_*).
+HOST_PS1    := build/host/ps1core-host.o
 
 ASSETS      := $(wildcard assets/fonts/*)
 MODULES     := $(wildcard sce_module/*)
@@ -29,7 +32,7 @@ OBJS        := $(patsubst src/%.c,$(BUILD)/%.o,$(PS4_SRCS))
 CFLAGS      := --target=x86_64-pc-freebsd12-elf -fPIC -funwind-tables -O2 -Wall -Wno-unused-function \
                -isysroot $(TOOLCHAIN) -isystem $(TOOLCHAIN)/include -Ithird_party
 LDFLAGS     := -m elf_x86_64 -pie --script $(TOOLCHAIN)/link.x --eh-frame-hdr --gc-sections -L$(TOOLCHAIN)/lib \
-               -lc -lm -lkernel -lSceVideoOut -lScePad -lSceUserService -lSceSystemService -lSceLncUtil $(TOOLCHAIN)/lib/crt1.o
+               -lc -lm -lkernel -lSceVideoOut -lScePad -lSceUserService -lSceSystemService -lSceLncUtil -lSceAudioOut -lpthread $(TOOLCHAIN)/lib/crt1.o
 
 PKG         := $(CONTENT_ID).pkg
 
@@ -68,9 +71,9 @@ $(BUILD)/%.o: src/%.c src/*.h
 # ---- desktop test build ----------------------------------------------------
 host: build/host/vault-host
 
-build/host/vault-host: $(HOST_SRCS) src/*.h
+build/host/vault-host: $(HOST_SRCS) src/*.h $(HOST_PS1)
 	@mkdir -p build/host
-	cc -O2 -g -Wall -Wno-unused-function -DVAULT_HOST -Ithird_party -o $@ $(HOST_SRCS) -lm
+	cc -O2 -g -Wall -Wno-unused-function -DVAULT_HOST -Ithird_party -o $@ $(HOST_SRCS) $(HOST_PS1) -lm -lpthread -ldl
 
 clean:
 	rm -rf build eboot.bin pkg.gp4 sce_sys/param.sfo $(PKG) VAULT.pkg

@@ -11,6 +11,19 @@ El motor es **PPSSPP** con el port a PS4 de **[M33](https://github.com/iHaiDeeZ/
 | Video y audio | FFmpeg 7.1 (H.264, ATRAC3/3+, MP3, AAC) y sceAudioOut |
 | Control | DualShock 4; **L3 + R3** abre el menú rápido (guardar/cargar estado, trucos, salir) |
 
+## Motor PS1
+
+Los juegos de PS1 no pasan por PPSSPP: `PS4Main.cpp` ve que es de PS1 (`ps1_is_game`) y llama a `vault_ps1_main()` (`src/ps1.c`), un front end libretro mínimo alrededor de **PCSX-ReARMed**:
+
+| Pieza | Qué hace |
+| --- | --- |
+| CPU | lightrec, recompilador MIPS → x86-64 (memoria RWX vía el `mmap` del port) |
+| Gráficos | GPU por software de PCSX (psx_gpu), escalado a 4:3 (1440×1080) directo en el framebuffer de VideoOut |
+| Audio | 44.1 kHz → 48 kHz, en un anillo que vacía un hilo con sceAudioOut; el anillo marca el ritmo del juego |
+| Control | DualShock 4 como pad digital; **L3 + R3** abre el menú (estado, reiniciar, salir) |
+
+El núcleo se compila con `build-ps1.sh` (parche `pcsx-ps4.patch`: plataforma `ps4` en su Makefile) y se empaqueta como un solo objeto, `ps1core.o`, con todos sus símbolos locales salvo la API libretro renombrada a `ps1core_*`, para que su libchdr, zstd y lzma no choquen con los de PPSSPP.
+
 ## Archivos
 
 | Archivo | Qué es |
@@ -19,12 +32,15 @@ El motor es **PPSSPP** con el port a PS4 de **[M33](https://github.com/iHaiDeeZ/
 | `build-deps.sh` | zlib, OpenSSL, curl, libsmb2, libnfs, libpng, zstd, libzip y FFmpeg para la PS4 |
 | `vault-engine.patch` | Cambios de VAULT sobre PPSSPP + parche de M33: abrir la pantalla de VAULT primero, carpetas en `/data/vault`, salir al menú de la PS4 |
 | `vault-port.patch` | Cambios de VAULT al runtime de PS4 de M33 (rutas de los registros) |
+| `build-ps1.sh` | Compila el motor PS1 (PCSX-ReARMed) y deja `ps1core.o` |
+| `pcsx-ps4.patch` | Plataforma `ps4` para el Makefile de PCSX-ReARMed |
 | `package-vault.sh` | Arma el PKG final: motor + pantalla de VAULT + assets |
 
 ## Compilar
 
 ```bash
 engine/build-engine.sh           # varias horas la primera vez
+engine/build-ps1.sh              # motor PS1 (antes de compilar el eboot)
 engine/package-vault.sh 01.00    # deja out/VAULT-v01.00.pkg
 ```
 

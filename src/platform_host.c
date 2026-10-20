@@ -52,9 +52,9 @@ static const Step kBrowserScript[] = {
     { 0, 0, NULL },
 };
 
-// VAULT_SCRIPT=eboot: the EBOOT filter, a PSP EBOOT's details, then a PS1 EBOOT (not playable yet).
+// VAULT_SCRIPT=eboot: the EBOOT section and a PSP EBOOT's details, then the PS1 section.
 static const Step kEbootScript[] = {
-    { 30, BTN_R1, NULL }, { 32, BTN_R1, NULL }, { 34, BTN_R1, NULL },
+    { 30, BTN_R1, NULL },
     { 70, 0, "13_filtro_eboot" },
     { 72, BTN_TRIANGLE, NULL },
     { 76, 0, "14_detalles_eboot" },
@@ -64,7 +64,63 @@ static const Step kEbootScript[] = {
     { 104, 0, "15_ps1_aviso" },
     { 106, BTN_CIRCLE, NULL },
     { 108, BTN_R1, NULL },
-    { 140, 0, "16_filtro_chd" },
+    { 140, 0, "16_seccion_ps1" },
+    { 0, 0, NULL },
+};
+
+// VAULT_SCRIPT=scroll: a long folder in Explorar, moving down past the last visible row.
+static const Step kScrollScript[] = {
+    { 30, BTN_SQUARE, NULL },
+    { 36, BTN_DOWN, NULL },
+    { 40, BTN_CROSS, NULL },
+    { 46, BTN_CROSS, NULL },
+    { 50, BTN_DOWN, NULL },
+    { 54, BTN_DOWN, NULL },
+    { 58, BTN_DOWN, NULL },
+    { 62, BTN_DOWN, NULL },
+    { 66, BTN_DOWN, NULL },
+    { 70, BTN_DOWN, NULL },
+    { 74, BTN_DOWN, NULL },
+    { 78, BTN_DOWN, NULL },
+    { 82, BTN_DOWN, NULL },
+    { 86, BTN_DOWN, NULL },
+    { 90, BTN_DOWN, NULL },
+    { 94, BTN_DOWN, NULL },
+    { 98, BTN_DOWN, NULL },
+    { 102, BTN_DOWN, NULL },
+    { 136, 0, "17_scroll_abajo" },
+    { 0, 0, NULL },
+};
+
+// VAULT_SCRIPT=secciones: each library section (ISO / CSO, EBOOT y Homebrew, PS1).
+static const Step kSectionsScript[] = {
+    { 40, 0, "18_seccion_psp" },
+    { 42, BTN_R1, NULL },
+    { 80, 0, "19_seccion_eboot" },
+    { 82, BTN_R1, NULL },
+    { 86, BTN_RIGHT, NULL },
+    { 130, 0, "20_seccion_ps1" },
+    { 0, 0, NULL },
+};
+
+// VAULT_SCRIPT=ps1 (with VAULT_PS1=<game>): frames from the PS1 player, then the pause menu.
+static const Step kPs1Script[] = {
+    { 120, 0, "21_ps1_juego" },
+    { 400, 0, "22_ps1_juego_2" },
+    { 402, BTN_L3 | BTN_R3, NULL },
+    { 410, 0, "23_ps1_menu" },
+    { 412, BTN_DOWN, NULL }, { 416, BTN_DOWN, NULL }, { 420, BTN_DOWN, NULL }, { 424, BTN_DOWN, NULL },
+    { 430, 0, "24_ps1_menu_salir" },
+    { 432, BTN_CROSS, NULL },
+    { 0, 0, NULL },
+};
+
+// VAULT_SCRIPT=intro: the start-up sequence when a game is launched.
+static const Step kIntroScript[] = {
+    { 30, BTN_CROSS, NULL },
+    { 46, 0, "25_intro_a" },
+    { 76, 0, "26_intro_b" },
+    { 110, 0, "27_intro_c" },
     { 0, 0, NULL },
 };
 
@@ -105,7 +161,11 @@ uint32_t plat_buttons(void) {
     uint32_t b = 0;
     const char *sc = getenv("VAULT_SCRIPT");
     const Step *script = (sc && strcmp(sc, "explorar") == 0) ? kBrowserScript
-                       : (sc && strcmp(sc, "eboot") == 0) ? kEbootScript : kScript;
+                       : (sc && strcmp(sc, "eboot") == 0) ? kEbootScript
+                       : (sc && strcmp(sc, "scroll") == 0) ? kScrollScript
+                       : (sc && strcmp(sc, "secciones") == 0) ? kSectionsScript
+                       : (sc && strcmp(sc, "ps1") == 0) ? kPs1Script
+                       : (sc && strcmp(sc, "intro") == 0) ? kIntroScript : kScript;
     for (const Step *s = script; s->frame; s++) {
         if (s->frame != g_frame) continue;
         b |= s->buttons;
@@ -114,7 +174,13 @@ uint32_t plat_buttons(void) {
     return b;
 }
 
-void plat_present(const Canvas *c) { g_last = c; }
+// Keeps its own copy: callers may free their canvas right after (the intro does).
+void plat_present(const Canvas *c) {
+    static Canvas copy;
+    if (!copy.px) copy = canvas_new(SCREEN_W, SCREEN_H);
+    memcpy(copy.px, c->px, (size_t)c->w * c->h * 4);
+    g_last = &copy;
+}
 void plat_idle(void) {}
 
 void plat_clock(int *hh, int *mm) {
@@ -128,7 +194,11 @@ void plat_clock(int *hh, int *mm) {
 int plat_host_done(void) {
     const char *once = getenv("VAULT_ONE_SHOT");
     if (once && g_frame >= 30) return 1;
-    return g_frame > 180;
+    int last = 170;
+    const char *sc = getenv("VAULT_SCRIPT");
+    const Step *script = (sc && strcmp(sc, "ps1") == 0) ? kPs1Script : NULL;
+    if (script) for (const Step *st = script; st->frame; st++) if (st->frame > last) last = st->frame;
+    return g_frame > last + 10;
 }
 
 int plat_engine_installed(void) { return getenv("VAULT_NO_ENGINE") == NULL; }
@@ -140,3 +210,32 @@ int plat_launch_engine(const char *game_path) {
 }
 
 void plat_shutdown(void) {}
+
+// ---------------------------------------------------------------- game-side API (host)
+// Frames go into one canvas (screenshots via the script); audio is counted, not played.
+static Canvas g_game_canvas;
+
+uint32_t *plat_frame_begin(void) {
+    if (!g_game_canvas.px) g_game_canvas = canvas_new(SCREEN_W, SCREEN_H);
+    return g_game_canvas.px;
+}
+
+void plat_frame_end(void) { g_last = &g_game_canvas; }
+
+int plat_pad(PadState *out) {
+    memset(out, 0, sizeof *out);
+    out->lx = out->ly = out->rx = out->ry = 128;
+    out->buttons = plat_buttons();
+    return 1;
+}
+
+static uint64_t g_audio_frames;
+int plat_audio_open(void) { g_audio_frames = 0; return 1; }
+void plat_audio_play(const int16_t *stereo, int frames) { (void)stereo; g_audio_frames += (uint64_t)frames; }
+void plat_audio_close(void) { plat_log("audio: %llu frames played", (unsigned long long)g_audio_frames); }
+
+uint64_t plat_time_us(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000000u + ts.tv_nsec / 1000;
+}

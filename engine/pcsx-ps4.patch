@@ -1,0 +1,22 @@
+diff --git a/Makefile.libretro b/Makefile.libretro
+index cd53109..f88ae3e 100644
+--- a/Makefile.libretro
++++ b/Makefile.libretro
+@@ -300,6 +300,17 @@ else ifeq ($(platform), arm64)
+    CFLAGS := $(filter-out -O2, $(CFLAGS))
+    CFLAGS += -O3 -ftree-vectorize
+ 
++# PS4 (OpenOrbis toolchain), linked into SAMPSP4's eboot
++else ifeq ($(platform), ps4)
++	TARGET := $(TARGET_NAME)_libretro_ps4.a
++	CFLAGS += -DNO_DYLIB -D__PS4__ -march=btver2
++	STATIC_LINKING := 1
++	NO_UNDEF_CHECK := 1
++	LIBDL :=
++	HAVE_PHYSICAL_CDROM = 0
++	USE_LIBRETRO_VFS = 0
++	BUILTIN_GPU = neon
++
+ # Lightweight PS3 Homebrew SDK
+ else ifeq ($(platform), psl1ght)
+ 	TARGET := $(TARGET_NAME)_libretro_psl1ght.a

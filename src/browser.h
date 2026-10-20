@@ -22,6 +22,7 @@ typedef struct {
     int count;
     int sel;
     float scroll;          // first visible row (animated)
+    int top;               // first visible row (where scroll is heading)
     int truncated;
     char error[160];       // why a folder couldn't be opened
     char toast[160];       // short feedback line

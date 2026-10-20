@@ -51,20 +51,22 @@ index 7a9f4ab..461c1de 100644
  	{ "Couldn't download the cheat database", { "No se pudo descargar la base de datos de trucos", "Impossible de télécharger la base de codes", "Cheat-Datenbank konnte nicht heruntergeladen werden", "Impossibile scaricare il database dei trucchi", "Não foi possível baixar o banco de dados de trapaças", "Kon de cheatdatabase niet downloaden", "Nie udało się pobrać bazy kodów", "Hile veritabanı indirilemedi", "Не удалось загрузить базу читов", "チートデータベースをダウンロードできませんでした", "无法下载金手指数据库", "無法下載金手指資料庫", "치트 데이터베이스를 다운로드할 수 없습니다" } },
  	{ "No more cheats for this game in the database", { "No hay más trucos para este juego en la base de datos", "Aucun autre code pour ce jeu dans la base", "Keine weiteren Cheats für dieses Spiel in der Datenbank", "Nessun altro trucco per questo gioco nel database", "Não há mais trapaças para este jogo no banco de dados", "Geen andere cheats voor dit spel in de database", "Brak kolejnych kodów do tej gry w bazie", "Veritabanında bu oyun için başka hile yok", "Других читов для этой игры в базе нет", "データベースにこのゲームのチートは他にありません", "数据库中没有此游戏的更多金手指", "資料庫中沒有此遊戲的更多金手指", "데이터베이스에 이 게임의 다른 치트가 없습니다" } },
 diff --git a/ps4/PS4Main.cpp b/ps4/PS4Main.cpp
-index e1a4465..ed5bf5c 100644
+index e1a4465..d71d939 100644
 --- a/ps4/PS4Main.cpp
 +++ b/ps4/PS4Main.cpp
-@@ -71,6 +71,9 @@
+@@ -71,6 +71,11 @@
  #include <orbis/Pad.h>
  
  extern "C" void ps4_boot_trace(const char *line);  // port/ps4_crashlog.cpp
 +// VAULT's library screen (github.com/Hackerdito/PSP4, src/main.c): runs before the emulator and
 +// returns 1 with the chosen game's path once one is picked, the screen and pad released again.
 +extern "C" int vault_main(char *out, int out_len);
++extern "C" int ps1_is_game(const char *path);
++extern "C" int vault_ps1_main(const char *path);
  extern "C" void ps4_sampler_start();                // port/ps4_sampler.cpp
  extern "C" size_t ps4_heap_footprint();             // port/ps4_runtime.cpp
  
-@@ -79,8 +82,8 @@ bool m33_skip_xmb = false;
+@@ -79,8 +84,8 @@ bool m33_skip_xmb = false;
  
  namespace {
  
@@ -75,7 +77,7 @@ index e1a4465..ed5bf5c 100644
  
  std::atomic<bool> g_quitRequested{ false };
  std::atomic<bool> g_restartRequested{ false };
-@@ -153,6 +156,12 @@ bool L1HeldAtLaunch() {
+@@ -153,6 +158,23 @@ bool L1HeldAtLaunch() {
  
  int main(int argc, char *argv[]) {
  	LoadSystemModules();
@@ -84,11 +86,22 @@ index e1a4465..ed5bf5c 100644
 +	Trace("VAULT screen");
 +	const bool fromVault = vault_main(vaultGame, sizeof(vaultGame)) == 1 && vaultGame[0];
 +	Trace(fromVault ? "VAULT handed over the screen" : "VAULT returned without a game");
++	// PlayStation 1 games run in SAMPSP4's own PS1 player; this emulator isn't started at all.
++	if (fromVault && ps1_is_game(vaultGame)) {
++		Trace(std::string("PS1: ") + vaultGame);
++		const int rc = vault_ps1_main(vaultGame);
++		char line[64];
++		snprintf(line, sizeof(line), "PS1 player returned %d: back to SAMPSP4", rc);
++		Trace(line);
++		const char *args[] = { nullptr };
++		sceSystemServiceLoadExec("/app0/eboot.bin", args);
++		_exit(0);
++	}
 +	mkdir("/data/vault", 0777);
  	Trace("M33 " + AppVersion() + " starting (PPSSPP " + std::string(PPSSPP_GIT_VERSION) + ")");
  	mkdir(kDataRoot, 0777);
  	mkdir(kGamesDir, 0777);
-@@ -168,6 +177,10 @@ int main(int argc, char *argv[]) {
+@@ -168,6 +190,10 @@ int main(int argc, char *argv[]) {
  	// No command line on the console (argv[0] is the eboot).
  	CommandLineOptions cmdLineOptions;
  	cmdLineOptions.fullscreen = true;
@@ -99,7 +112,7 @@ index e1a4465..ed5bf5c 100644
  
  	g_display.pixel_xres = ps4wsi::kWidth;
  	g_display.pixel_yres = ps4wsi::kHeight;
-@@ -178,6 +191,9 @@ int main(int argc, char *argv[]) {
+@@ -178,6 +204,9 @@ int main(int argc, char *argv[]) {
  	NativeInit(argc, (const char **)argv, cmdLineOptions, dataDir.c_str(), kGamesDir, nullptr);
  	g_logManager.SetFileLogPath(Path(kDataRoot) / "ppsspp.log");
  	g_logManager.EnableOutput(LogOutput::File);
@@ -109,7 +122,7 @@ index e1a4465..ed5bf5c 100644
  
  	// Vulkan is the only backend here.
  	g_Config.iGPUBackend = (int)GPUBackend::VULKAN;
-@@ -265,6 +281,22 @@ int main(int argc, char *argv[]) {
+@@ -265,6 +294,22 @@ int main(int argc, char *argv[]) {
  	Trace("exiting");
  	emuThread.join();
  
@@ -132,7 +145,7 @@ index e1a4465..ed5bf5c 100644
  	PS4Pad::Shutdown();
  	PS4Audio::Stop();
  	graphicsContext->ShutdownSurface();
-@@ -280,7 +312,7 @@ int main(int argc, char *argv[]) {
+@@ -280,7 +325,7 @@ int main(int argc, char *argv[]) {
  extern "C" void ps4_crash_guest_info() {
  	if (!currentMIPS)
  		return;
@@ -170,10 +183,10 @@ index 9a67f77..6e07785 100644
  	Quad(db, tagX, 92 * k, tagX + tagW, 122 * k, tagCol, tagCol, tagCol, tagCol);
  	Text(dc, tagText, tagX + 14 * k, 107 * k, 20 * k, Col(TEXT, a), ALIGN_LEFT | ALIGN_VCENTER);
 diff --git a/ps4/ps4.cmake b/ps4/ps4.cmake
-index 407ae6f..114c5a6 100644
+index 407ae6f..9d0b51e 100644
 --- a/ps4/ps4.cmake
 +++ b/ps4/ps4.cmake
-@@ -30,6 +30,19 @@ target_sources(${TargetBin} PRIVATE
+@@ -30,6 +30,27 @@ target_sources(${TargetBin} PRIVATE
  	${PS4_RUNTIME_SOURCES})
  
  # FreeBSD kernel without sockets for local IPC or serial ports
@@ -181,8 +194,16 @@ index 407ae6f..114c5a6 100644
 +if(VAULT_DIR)
 +	set(VAULT_SOURCES
 +		${VAULT_DIR}/src/main.c ${VAULT_DIR}/src/ui.c ${VAULT_DIR}/src/gfx.c ${VAULT_DIR}/src/disc.c
-+		${VAULT_DIR}/src/library.c ${VAULT_DIR}/src/browser.c ${VAULT_DIR}/src/platform_ps4.c)
++		${VAULT_DIR}/src/library.c ${VAULT_DIR}/src/browser.c ${VAULT_DIR}/src/platform_ps4.c
++		${VAULT_DIR}/src/intro.c ${VAULT_DIR}/src/ps1.c)
 +	target_sources(${TargetBin} PRIVATE ${VAULT_SOURCES})
++	# The PS1 engine (PCSX-ReARMed), packed by the repository's engine/build-ps1.sh.
++	set(PS1_CORE_OBJ "${CMAKE_BINARY_DIR}/../ps1/ps1core.o" CACHE FILEPATH "SAMPSP4's PS1 core object")
++	if(NOT EXISTS "${PS1_CORE_OBJ}")
++		message(FATAL_ERROR "${PS1_CORE_OBJ} is missing: run engine/build-ps1.sh first")
++	endif()
++	target_sources(${TargetBin} PRIVATE ${PS1_CORE_OBJ})
++	set_source_files_properties(${PS1_CORE_OBJ} PROPERTIES EXTERNAL_OBJECT TRUE GENERATED TRUE)
 +	set_source_files_properties(${VAULT_SOURCES} PROPERTIES
 +		COMPILE_DEFINITIONS VAULT_EMBEDDED
 +		INCLUDE_DIRECTORIES "${VAULT_DIR}/src;${VAULT_DIR}/third_party"

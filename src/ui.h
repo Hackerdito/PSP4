@@ -34,4 +34,6 @@ void app_draw(App *a, Canvas *c, int hh, int mm);
 void app_draw_scanning(Canvas *c, const Canvas *bg);
 void app_draw_launching(App *a, Canvas *c);
 // Called by main.c with the result of plat_launch_engine.
+// Name and system ("PSP" / "PLAYSTATION") of the game in launch_path, for the start-up sequence.
+void app_launch_info(App *a, char *sys, int sys_len, char *title, int title_len);
 void app_launch_failed(App *a, int code);
