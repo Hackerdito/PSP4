@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v1.4"
+#define VAULT_VERSION "v1.5"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
@@ -48,6 +48,9 @@ static int section_count(App *a, int s) {
     for (int k = 0; k < a->lib.count; k++) n += (int)a->lib.games[k].sys == s;
     return n;
 }
+
+static int pc_update(App *a, uint32_t pressed);
+static void pc_open(App *a);
 
 static Game *selected(App *a) {
     if (a->view_count == 0) return NULL;
@@ -212,7 +215,8 @@ static int browser_update(App *a, uint32_t pressed) {
 
     if (pressed & BTN_CROSS && b->count) {
         BrowserEntry *e = &b->entries[b->sel];
-        if (e->kind == ENTRY_DRIVE || e->kind == ENTRY_DIR) browser_enter(b, e->full);
+        if (e->kind == ENTRY_DRIVE && strcmp(e->full, "pc:") == 0) pc_open(a);
+        else if (e->kind == ENTRY_DRIVE || e->kind == ENTRY_DIR) browser_enter(b, e->full);
         else if (e->kind == ENTRY_GAME) request_launch(a, e->full);
         else browser_toast(b, "SAMPSP4 abre juegos .iso, .cso, EBOOT.PBP y .chd");
         dirty = 1;
@@ -220,7 +224,7 @@ static int browser_update(App *a, uint32_t pressed) {
     if (pressed & BTN_TRIANGLE) {
         const char *folder = NULL;
         if (!b->at_root) folder = b->path;
-        else if (b->count) folder = b->entries[b->sel].full;
+        else if (b->count && strcmp(b->entries[b->sel].full, "pc:") != 0) folder = b->entries[b->sel].full;
         if (folder) {
             int r = library_folder_add(folder);
             char msg[160];
@@ -257,6 +261,7 @@ int app_update(App *a, uint32_t pressed, uint32_t held) {
         if (pressed & (BTN_CIRCLE | BTN_CROSS)) { a->modal = MODAL_NONE; dirty = 1; }
         return dirty;
     }
+    if (a->pc.open) return pc_update(a, pressed);
     if (a->browser.open) return browser_update(a, pressed);
     int prev_sel = a->sel;
     if ((pressed & BTN_RIGHT) && a->sel < a->view_count - 1) a->sel++;
@@ -268,6 +273,7 @@ int app_update(App *a, uint32_t pressed, uint32_t held) {
         dirty = 1;
     }
     if (pressed & BTN_SQUARE) { browser_open(&a->browser); dirty = 1; }
+    if (pressed & BTN_L2) { pc_open(a); dirty = 1; }
     if (pressed & BTN_OPTIONS) { a->scanning = 1; dirty = 1; }
     if ((pressed & BTN_CROSS) && a->view_count) { request_launch(a, a->lib.games[a->view[a->sel]].path); dirty = 1; }
     if ((pressed & BTN_TRIANGLE) && a->view_count) { a->modal = MODAL_DETAILS; dirty = 1; }
@@ -525,10 +531,12 @@ static void draw_footer(App *a, Canvas *c) {
     fill_rect(c, 0, (int)y, SCREEN_W, 1, 0xFFFFFF, 0.08f);
     float cy = y + 40;
     float lw = draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "SAMPSP4 " VAULT_VERSION " \xC2\xB7 PSP + PS1", C_MUTED, 1, 0);
-    if (!a->browser.open && a->modal == MODAL_NONE) {
+    if (!a->browser.open && !a->pc.open && a->modal == MODAL_NONE) {
         float kx = PAD_X + lw + 40;
         kx += key_chip(c, kx, cy, "OPTIONS") + 10;
-        draw_text(c, FONT_BODY, 20, kx, cy + 7, "Escanear", C_MUTED, 1, 0);
+        kx += draw_text(c, FONT_BODY, 20, kx, cy + 7, "Escanear", C_MUTED, 1, 0) + 32;
+        kx += key_chip(c, kx, cy, "L2") + 10;
+        draw_text(c, FONT_BODY, 20, kx, cy + 7, "Mi PC", C_MUTED, 1, 0);
     }
 
     struct { Glyph g; const char *t; } hints[4] = {
@@ -542,6 +550,27 @@ static void draw_footer(App *a, Canvas *c) {
         hints[1].g = G_TRIANGLE; hints[1].t = "Agregar carpeta";
         hints[2].g = G_CIRCLE; hints[2].t = a->browser.at_root ? "Cerrar" : "Atr\xC3\xA1s";
         nh = 3;
+    }
+    if (a->pc.open) {
+        PcView *p = &a->pc;
+        nh = 0;
+        if (p->kb_open) nh = 0;
+        else if (p->busy && p->screen != PCV_DOWNLOAD) { hints[0].g = G_CIRCLE; hints[0].t = "Dejar de esperar"; nh = 1; }
+        else switch (p->screen) {
+        case PCV_SETUP: hints[0].g = G_CROSS; hints[0].t = p->field <= 2 ? "Escribir" : "Elegir"; hints[1].g = G_CIRCLE; hints[1].t = "Cerrar"; nh = 2; break;
+        case PCV_SHARES: hints[0].g = G_CROSS; hints[0].t = "Abrir"; hints[1].g = G_CIRCLE; hints[1].t = "Cerrar"; nh = 2; break;
+        case PCV_DIR: {
+            int game = p->count && p->entries[p->sel].kind == PC_KIND_GAME;
+            hints[0].g = G_CROSS; hints[0].t = game ? "Descargar" : "Abrir";
+            hints[1].g = G_TRIANGLE; hints[1].t = "Ajustes";
+            hints[2].g = G_CIRCLE; hints[2].t = p->dir[0] ? "Atr\xC3\xA1s" : "Cerrar";
+            nh = 3;
+            break;
+        }
+        case PCV_DEST: hints[0].g = G_CROSS; hints[0].t = "Descargar aqu\xC3\xAD"; hints[1].g = G_CIRCLE; hints[1].t = "Atr\xC3\xA1s"; nh = 2; break;
+        case PCV_DOWNLOAD: hints[0].g = G_CIRCLE; hints[0].t = "Cancelar"; nh = 1; break;
+        case PCV_RESULT: hints[0].g = G_CROSS; hints[0].t = "Seguir"; nh = 1; break;
+        }
     }
     if (a->modal != MODAL_NONE) { hints[0].g = G_CIRCLE; hints[0].t = "Cerrar"; nh = 1; }
     float x = SCREEN_W - PAD_X;
@@ -736,6 +765,8 @@ static void draw_browser(App *a, Canvas *c) {
     }
 }
 
+#include "ui_pc.inc.c"
+
 void app_draw(App *a, Canvas *c, int hh, int mm) {
     Game *g = selected(a);
     int gi = g ? a->view[a->sel] : -1;
@@ -750,6 +781,7 @@ void app_draw(App *a, Canvas *c, int hh, int mm) {
     draw_library(a, c);
     draw_footer(a, c);
     if (a->browser.open) { draw_browser(a, c); draw_footer(a, c); }
+    if (a->pc.open) { draw_pc(a, c); draw_footer(a, c); }
     if (a->modal != MODAL_NONE) { draw_modal(a, c); draw_footer(a, c); }
 }
 

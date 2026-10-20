@@ -155,6 +155,8 @@ uint32_t plat_buttons(void) {
     if (b & ORBIS_PAD_BUTTON_L1) out |= BTN_L1;
     if (b & ORBIS_PAD_BUTTON_R1) out |= BTN_R1;
     if (b & ORBIS_PAD_BUTTON_OPTIONS) out |= BTN_OPTIONS;
+    if (b & ORBIS_PAD_BUTTON_L2) out |= BTN_L2;
+    if (b & ORBIS_PAD_BUTTON_R2) out |= BTN_R2;
     // Left stick as d-pad.
     if (d.leftStick.x < 40) out |= BTN_LEFT;
     if (d.leftStick.x > 215) out |= BTN_RIGHT;

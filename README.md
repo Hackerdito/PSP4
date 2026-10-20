@@ -2,7 +2,7 @@
 
 SAMPSP4 es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de **PSP** (`.iso`, `.cso`, `EBOOT.PBP`, `.chd`) y de **PS1** (`.cue/.bin`, `.chd`, `.iso`, `EBOOT.PBP`) y los muestra en una biblioteca moderna, separada en tres secciones: **ISO / CSO**, **EBOOT y Homebrew** y **PS1**.
 
-> **Estado: v1.4, con dos motores integrados.** PSP: PPSSPP con el port a PS4 de [M33](https://github.com/iHaiDeeZ/M33). PS1: [PCSX-ReARMed](https://github.com/libretro/pcsx_rearmed) con su recompilador lightrec. Todo dentro del mismo PKG; no hace falta instalar otra app. Detalles en [`engine/`](engine/README.md).
+> **Estado: v1.5, con dos motores integrados y descargas desde tu PC.** PSP: PPSSPP con el port a PS4 de [M33](https://github.com/iHaiDeeZ/M33). PS1: [PCSX-ReARMed](https://github.com/libretro/pcsx_rearmed) con su recompilador lightrec. Todo dentro del mismo PKG; no hace falta instalar otra app. Detalles en [`engine/`](engine/README.md).
 
 ## Instalar en tu PS4
 
@@ -27,6 +27,22 @@ SAMPSP4 es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de **
 
 De PSP saca el título, el ID, `ICON0.PNG` (miniatura) y `PIC1.PNG` (portada grande). De PS1 lee el ID del disco (`SYSTEM.CNF`); el nombre viene del archivo. Un `.bin` que tiene su `.cue` al lado no se lista aparte.
 
+## Mi PC: juegos desde tu computadora
+
+SAMPSP4 copia juegos desde una **carpeta compartida** de tu PC (Windows o Mac) por la red de tu casa. No hay que instalar nada en la PC: es el "compartir archivos" (SMB) que ya traen los dos sistemas.
+
+**En la PC (una vez):**
+
+- **Windows:** clic derecho en la carpeta de tus juegos → **Propiedades → Compartir → Compartir…**, agrega tu usuario. La IP sale con `ipconfig` (algo como `192.168.1.50`). Si inicias sesión con cuenta de Microsoft, el usuario es tu correo y la contraseña la de esa cuenta.
+- **Mac:** **Ajustes del Sistema → General → Compartir → Compartir archivos**, agrega la carpeta; en **Opciones…** activa "Compartir archivos y carpetas mediante SMB" y marca tu usuario. La IP está en **Ajustes → Red**.
+
+**En la PS4:** **L2** en la biblioteca (o **Explorar → Mi PC**). La primera vez escribe la IP (o usa **Buscar PCs en la red**), tu usuario y contraseña; se guardan en `/data/vault/pc.txt`. Luego eliges la carpeta compartida, navegas, y con ✕ sobre un juego eliges dónde guardarlo:
+
+- **Disco duro de la PS4:** `/data/vault/games`
+- **Memoria USB:** `USB/SAMPSP4/`
+
+El original **se queda en tu PC**. Un `.cue` baja con sus `.bin`; un `EBOOT.PBP`, con su carpeta. Al cerrar Mi PC la biblioteca se vuelve a escanear y el juego aparece en su sección.
+
 ## Controles
 
 | Botón | Acción |
@@ -37,6 +53,7 @@ De PSP saca el título, el ID, `ICON0.PNG` (miniatura) y `PIC1.PNG` (portada gra
 | △ | Detalles del archivo |
 | □ | **Explorar**: navega USB y disco interno |
 | OPTIONS | Volver a escanear |
+| L2 | **Mi PC**: juegos de tu computadora |
 
 ### Explorar
 
@@ -138,7 +155,8 @@ tools/              SDK, stubs, datos de prueba, arte del paquete
 - [x] **Fase 3:** motor PSP integrado en VAULT (un solo PKG).
 - [x] **Fase 4:** volver a SAMPSP4 al salir de un juego, EBOOT.PBP y CHD, secciones, intro.
 - [x] **Fase 5:** motor PS1 integrado.
-- [ ] **Siguiente:** descargar juegos desde tu PC en la red, favoritos y recientes.
+- [x] **Fase 6:** Mi PC (descargas por SMB desde Windows y Mac).
+- [ ] **Siguiente:** favoritos y recientes.
 
 ## Créditos y licencias
 
@@ -146,6 +164,7 @@ tools/              SDK, stubs, datos de prueba, arte del paquete
 - [PCSX-ReARMed](https://github.com/libretro/pcsx_rearmed) (notaz y colaboradores, con lightrec y GNU Lightning): el motor PS1, GPL-2.0-or-later.
 - [PPSSPP](https://github.com/hrydgard/ppsspp) (Henrik Rydgård y colaboradores) y su port a PS4 [M33](https://github.com/iHaiDeeZ/M33) de ShiroKlein, con la base de Resonance, DolphinPS4 y Crema: el motor, GPL-2.0-or-later. Mesa (RADV), MIT. FFmpeg, LGPL.
 - [OpenOrbis PS4 Toolchain](https://github.com/OpenOrbis/OpenOrbis-PS4-Toolchain), musl, create-fself, create-gp4 y LibOrbisPkg: GPL-3.0 / MIT.
+- [libsmb2](https://github.com/sahlberg/libsmb2) (Ronnie Sahlberg): SMB2/3, LGPL-2.1.
 - [GoldHEN Plugins SDK](https://github.com/GoldHEN/GoldHEN_Plugins_SDK): MIT (llamada de jailbreak).
 - [stb](https://github.com/nothings/stb): dominio público / MIT.
 - Space Grotesk y JetBrains Mono: SIL Open Font License 1.1.

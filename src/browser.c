@@ -65,6 +65,13 @@ void browser_show_root(Browser *b) {
     b->top = 0;
     b->truncated = 0;
     b->error[0] = 0;
+    // First: games on the player's computer, over the network (the "Mi PC" window).
+    BrowserEntry *pc = &b->entries[b->count++];
+    memset(pc, 0, sizeof *pc);
+    pc->kind = ENTRY_DRIVE;
+    snprintf(pc->name, sizeof pc->name, "Mi PC");
+    snprintf(pc->full, sizeof pc->full, "pc:");
+    snprintf(pc->note, sizeof pc->note, "Carpeta compartida en tu red");
     for (int i = 0; kRoots[i].path; i++) {
         DIR *d = opendir(kRoots[i].path);
         if (!d) continue;   // empty port or no access

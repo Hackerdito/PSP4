@@ -183,7 +183,7 @@ index 9a67f77..6e07785 100644
  	Quad(db, tagX, 92 * k, tagX + tagW, 122 * k, tagCol, tagCol, tagCol, tagCol);
  	Text(dc, tagText, tagX + 14 * k, 107 * k, 20 * k, Col(TEXT, a), ALIGN_LEFT | ALIGN_VCENTER);
 diff --git a/ps4/ps4.cmake b/ps4/ps4.cmake
-index 407ae6f..9d0b51e 100644
+index 407ae6f..5263717 100644
 --- a/ps4/ps4.cmake
 +++ b/ps4/ps4.cmake
 @@ -30,6 +30,27 @@ target_sources(${TargetBin} PRIVATE
@@ -195,7 +195,7 @@ index 407ae6f..9d0b51e 100644
 +	set(VAULT_SOURCES
 +		${VAULT_DIR}/src/main.c ${VAULT_DIR}/src/ui.c ${VAULT_DIR}/src/gfx.c ${VAULT_DIR}/src/disc.c
 +		${VAULT_DIR}/src/library.c ${VAULT_DIR}/src/browser.c ${VAULT_DIR}/src/platform_ps4.c
-+		${VAULT_DIR}/src/intro.c ${VAULT_DIR}/src/ps1.c)
++		${VAULT_DIR}/src/intro.c ${VAULT_DIR}/src/ps1.c ${VAULT_DIR}/src/netpc.c)
 +	target_sources(${TargetBin} PRIVATE ${VAULT_SOURCES})
 +	# The PS1 engine (PCSX-ReARMed), packed by the repository's engine/build-ps1.sh.
 +	set(PS1_CORE_OBJ "${CMAKE_BINARY_DIR}/../ps1/ps1core.o" CACHE FILEPATH "SAMPSP4's PS1 core object")

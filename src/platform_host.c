@@ -40,6 +40,7 @@ static const Step kBrowserScript[] = {
     { 30, 0, "07_inicio" },
     { 32, BTN_SQUARE, NULL },
     { 40, 0, "08_explorar_unidades" },
+    { 41, BTN_DOWN, NULL },
     { 42, BTN_CROSS, NULL },
     { 50, 0, "09_explorar_usb0" },
     { 52, BTN_DOWN, NULL },
@@ -124,6 +125,31 @@ static const Step kIntroScript[] = {
     { 0, 0, NULL },
 };
 
+// VAULT_SCRIPT=mipc (a saved build/host/pc.txt pointing at a test SMB share): Mi PC from L2,
+// its shared folders, a folder, a PS1 game copied to the PS4, then the settings and keyboard.
+static const Step kPcScript[] = {
+    { 20, BTN_L2, NULL },
+    { 120, 0, "28_mipc_carpetas" },
+    { 122, BTN_CROSS, NULL },
+    { 220, 0, "29_mipc_raiz" },
+    { 222, BTN_DOWN, NULL },
+    { 226, BTN_CROSS, NULL },
+    { 320, 0, "30_mipc_ps1" },
+    { 322, BTN_DOWN, NULL },
+    { 326, BTN_CROSS, NULL },
+    { 340, 0, "31_mipc_destino" },
+    { 342, BTN_CROSS, NULL },
+    { 345, 0, "32_mipc_descargando" },
+    { 460, 0, "33_mipc_listo" },
+    { 462, BTN_CROSS, NULL },
+    { 470, BTN_TRIANGLE, NULL },
+    { 480, 0, "34_mipc_ajustes" },
+    { 482, BTN_CROSS, NULL },
+    { 486, BTN_DOWN, NULL }, { 488, BTN_RIGHT, NULL },
+    { 494, 0, "35_mipc_teclado" },
+    { 0, 0, NULL },
+};
+
 const char *plat_app_dir(void) {
     const char *d = getenv("VAULT_APP");
     return d ? d : ".";
@@ -165,7 +191,8 @@ uint32_t plat_buttons(void) {
                        : (sc && strcmp(sc, "scroll") == 0) ? kScrollScript
                        : (sc && strcmp(sc, "secciones") == 0) ? kSectionsScript
                        : (sc && strcmp(sc, "ps1") == 0) ? kPs1Script
-                       : (sc && strcmp(sc, "intro") == 0) ? kIntroScript : kScript;
+                       : (sc && strcmp(sc, "intro") == 0) ? kIntroScript
+                       : (sc && strcmp(sc, "mipc") == 0) ? kPcScript : kScript;
     for (const Step *s = script; s->frame; s++) {
         if (s->frame != g_frame) continue;
         b |= s->buttons;
@@ -181,7 +208,7 @@ void plat_present(const Canvas *c) {
     memcpy(copy.px, c->px, (size_t)c->w * c->h * 4);
     g_last = &copy;
 }
-void plat_idle(void) {}
+void plat_idle(void) { struct timespec ts = { 0, 4000000 }; nanosleep(&ts, NULL); }
 
 void plat_clock(int *hh, int *mm) {
     time_t t = time(NULL);
@@ -196,7 +223,7 @@ int plat_host_done(void) {
     if (once && g_frame >= 30) return 1;
     int last = 170;
     const char *sc = getenv("VAULT_SCRIPT");
-    const Step *script = (sc && strcmp(sc, "ps1") == 0) ? kPs1Script : NULL;
+    const Step *script = (sc && strcmp(sc, "ps1") == 0) ? kPs1Script : (sc && strcmp(sc, "mipc") == 0) ? kPcScript : NULL;
     if (script) for (const Step *st = script; st->frame; st++) if (st->frame > last) last = st->frame;
     return g_frame > last + 10;
 }
