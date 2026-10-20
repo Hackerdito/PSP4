@@ -2,6 +2,7 @@
 #pragma once
 #include "gfx.h"
 #include "library.h"
+#include "browser.h"
 
 typedef enum { MODAL_NONE = 0, MODAL_PLAY, MODAL_DETAILS, MODAL_NO_ENGINE, MODAL_LAUNCH_ERROR } Modal;
 
@@ -19,7 +20,9 @@ typedef struct {
     int cover_for;
     int idle_frames;
     int scanning;
-    int launch_request;      // set by Cross; main.c starts the engine
+    int launch_request;      // set by Cross; main.c starts the engine with launch_path
+    char launch_path[512];
+    Browser browser;         // the Explorar window
     int launch_error;
 } App;
 

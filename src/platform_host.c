@@ -35,6 +35,23 @@ static const Step kScript[] = {
     { 0, 0, NULL },
 };
 
+// VAULT_SCRIPT=explorar: opens the Explorar window, enters a USB, adds the folder, closes.
+static const Step kBrowserScript[] = {
+    { 30, 0, "07_inicio" },
+    { 32, BTN_SQUARE, NULL },
+    { 40, 0, "08_explorar_unidades" },
+    { 42, BTN_CROSS, NULL },
+    { 50, 0, "09_explorar_usb0" },
+    { 52, BTN_DOWN, NULL },
+    { 54, BTN_CROSS, NULL },
+    { 70, 0, "10_explorar_carpeta" },
+    { 72, BTN_TRIANGLE, NULL },
+    { 76, 0, "11_carpeta_agregada" },
+    { 78, BTN_CIRCLE, NULL }, { 80, BTN_CIRCLE, NULL }, { 82, BTN_CIRCLE, NULL },
+    { 110, 0, "12_biblioteca" },
+    { 0, 0, NULL },
+};
+
 const char *plat_app_dir(void) {
     const char *d = getenv("VAULT_APP");
     return d ? d : ".";
@@ -70,7 +87,9 @@ static void shot(const char *name) {
 uint32_t plat_buttons(void) {
     g_frame++;
     uint32_t b = 0;
-    for (const Step *s = kScript; s->frame; s++) {
+    const char *sc = getenv("VAULT_SCRIPT");
+    const Step *script = (sc && strcmp(sc, "explorar") == 0) ? kBrowserScript : kScript;
+    for (const Step *s = script; s->frame; s++) {
         if (s->frame != g_frame) continue;
         b |= s->buttons;
         if (s->shot) shot(s->shot);

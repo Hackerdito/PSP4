@@ -47,7 +47,7 @@ int main(void) {
             a->launch_request = 0;
             app_draw_launching(a, &frame);
             plat_present(&frame);
-            int rc = plat_launch_engine(a->lib.games[a->view[a->sel]].path);
+            int rc = plat_launch_engine(a->launch_path);
             if (rc != 0) app_launch_failed(a, rc);
             dirty = 1;
         }

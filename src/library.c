@@ -1,5 +1,6 @@
 // library.c - folder scan + metadata extraction.
 #include "library.h"
+#include "browser.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -54,7 +55,8 @@ static void mkdirs(const char *path) {
 
 void format_size(uint64_t b, char *out, int n) {
     if (b >= (1ull << 30)) snprintf(out, n, "%.1f GB", b / 1073741824.0);
-    else snprintf(out, n, "%llu MB", (unsigned long long)(b >> 20));
+    else if (b >= (1ull << 20)) snprintf(out, n, "%llu MB", (unsigned long long)(b >> 20));
+    else snprintf(out, n, "%llu KB", (unsigned long long)((b + 1023) >> 10));
 }
 
 // A title is usable if most of its characters are Latin (our fonts cover Latin-1).
@@ -211,6 +213,9 @@ static void scan_dir(Library *lib, const char *dirpath, const char *label, int d
             if (!r->sample[0]) snprintf(r->sample, sizeof r->sample, "%s", e->d_name);
             continue;
         }
+        int dup = 0;   // same file reached through two folders (a saved folder inside a USB)
+        for (int i = 0; i < lib->count; i++) if (strcmp(lib->games[i].path, full) == 0) { dup = 1; break; }
+        if (dup) continue;
         r->games++;
         Game *g = &lib->games[lib->count];
         memset(g, 0, sizeof *g);
@@ -245,8 +250,22 @@ void library_scan(Library *lib, int tile_w, int tile_h) {
     if (data) closedir(data);
     if (g_log) fprintf(g_log, "VAULT scan. /data legible: %s\n", lib->data_readable ? "si" : "NO (sandbox)");
 
-    for (int k = 0; kGameDirs[k].path; k++) {
-        const GameDir *gd = &kGameDirs[k];
+    // Fixed folders, then the ones added from Explorar.
+    GameDir dirs[48];
+    int nd = 0;
+    for (int k = 0; kGameDirs[k].path && nd < 16; k++) dirs[nd++] = kGameDirs[k];
+    static char saved[32][512];
+    int ns = library_folders_load(saved, 32);
+    static char labels[32][16];
+    for (int k = 0; k < ns && nd < 47; k++) {
+        const char *u = strstr(saved[k], "usb");
+        if (u && u[3] >= '0' && u[3] <= '9') snprintf(labels[k], sizeof labels[k], "USB%c", u[3]);
+        else snprintf(labels[k], sizeof labels[k], "Mi carpeta");
+        dirs[nd++] = (GameDir){ saved[k], labels[k], 3, 0 };
+    }
+    dirs[nd].path = NULL;
+    for (int k = 0; dirs[k].path; k++) {
+        const GameDir *gd = &dirs[k];
         DirReport r;
         memset(&r, 0, sizeof r);
         snprintf(r.path, sizeof r.path, "%s", gd->path);

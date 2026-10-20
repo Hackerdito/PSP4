@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v0.4"
+#define VAULT_VERSION "v0.5"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
@@ -173,6 +173,70 @@ static void update_scroll_target(App *a) {
     if (pos < a->scroll_target) a->scroll_target = pos;
 }
 
+static void request_launch(App *a, const char *path) {
+    if (plat_engine_installed()) {
+        snprintf(a->launch_path, sizeof a->launch_path, "%s", path);
+        a->launch_request = 1;
+    } else {
+        a->modal = MODAL_NO_ENGINE;
+    }
+}
+
+#define BROWSER_ROWS 10
+
+static void browser_toast(Browser *b, const char *msg) {
+    snprintf(b->toast, sizeof b->toast, "%s", msg);
+    b->toast_frames = 180;
+}
+
+// Input while the Explorar window is open.
+static int browser_update(App *a, uint32_t pressed) {
+    Browser *b = &a->browser;
+    int dirty = 0;
+    if (b->toast_frames > 0 && --b->toast_frames == 0) dirty = 1;
+    int prev = b->sel;
+    if ((pressed & BTN_DOWN) && b->sel < b->count - 1) b->sel++;
+    if ((pressed & BTN_UP) && b->sel > 0) b->sel--;
+    if (pressed & BTN_R1) b->sel = b->sel + BROWSER_ROWS < b->count ? b->sel + BROWSER_ROWS : (b->count ? b->count - 1 : 0);
+    if (pressed & BTN_L1) b->sel = b->sel > BROWSER_ROWS ? b->sel - BROWSER_ROWS : 0;
+    if (b->sel != prev) dirty = 1;
+
+    if (pressed & BTN_CROSS && b->count) {
+        BrowserEntry *e = &b->entries[b->sel];
+        if (e->kind == ENTRY_DRIVE || e->kind == ENTRY_DIR) browser_enter(b, e->full);
+        else if (e->kind == ENTRY_GAME) request_launch(a, e->full);
+        else browser_toast(b, "VAULT abre juegos .iso y .cso");
+        dirty = 1;
+    }
+    if (pressed & BTN_TRIANGLE) {
+        const char *folder = NULL;
+        if (!b->at_root) folder = b->path;
+        else if (b->count) folder = b->entries[b->sel].full;
+        if (folder) {
+            int r = library_folder_add(folder);
+            char msg[160];
+            if (r > 0) { snprintf(msg, sizeof msg, "Agregada a tu biblioteca: %s", folder); b->folders_added = 1; }
+            else if (r == 0) snprintf(msg, sizeof msg, "Esa carpeta ya est\xC3\xA1 en tu biblioteca");
+            else snprintf(msg, sizeof msg, "No se pudo guardar la carpeta");
+            browser_toast(b, msg);
+        }
+        dirty = 1;
+    }
+    if (pressed & BTN_CIRCLE) {
+        browser_up(b);
+        if (!b->open && b->folders_added) a->scanning = 1;
+        dirty = 1;
+    }
+    // Keep the selection inside the visible rows, scrolling smoothly.
+    float target = b->scroll;
+    if (b->sel < target) target = b->sel;
+    if (b->sel >= target + BROWSER_ROWS) target = b->sel - BROWSER_ROWS + 1;
+    float d = target - b->scroll;
+    if (fabsf(d) > 0.02f) { b->scroll += d * 0.35f; dirty = 1; }
+    else if (d != 0) { b->scroll = target; dirty = 1; }
+    return dirty;
+}
+
 int app_update(App *a, uint32_t pressed, uint32_t held) {
     int dirty = 0;
     (void)held;
@@ -180,6 +244,7 @@ int app_update(App *a, uint32_t pressed, uint32_t held) {
         if (pressed & (BTN_CIRCLE | BTN_CROSS)) { a->modal = MODAL_NONE; dirty = 1; }
         return dirty;
     }
+    if (a->browser.open) return browser_update(a, pressed);
     int prev_sel = a->sel;
     if ((pressed & BTN_RIGHT) && a->sel < a->view_count - 1) a->sel++;
     if ((pressed & BTN_LEFT) && a->sel > 0) a->sel--;
@@ -189,14 +254,11 @@ int app_update(App *a, uint32_t pressed, uint32_t held) {
         rebuild_view(a);
         dirty = 1;
     }
-    if (pressed & BTN_SQUARE) { a->scanning = 1; dirty = 1; }
-    if ((pressed & BTN_CROSS) && a->view_count) {
-        if (plat_engine_installed()) a->launch_request = 1;
-        else a->modal = MODAL_NO_ENGINE;
-        dirty = 1;
-    }
+    if (pressed & BTN_SQUARE) { browser_open(&a->browser); dirty = 1; }
+    if (pressed & BTN_OPTIONS) { a->scanning = 1; dirty = 1; }
+    if ((pressed & BTN_CROSS) && a->view_count) { request_launch(a, a->lib.games[a->view[a->sel]].path); dirty = 1; }
     if ((pressed & BTN_TRIANGLE) && a->view_count) { a->modal = MODAL_DETAILS; dirty = 1; }
-    if (pressed & BTN_CROSS && !a->view_count) { a->scanning = 1; dirty = 1; }
+    if ((pressed & BTN_CROSS) && !a->view_count) { browser_open(&a->browser); dirty = 1; }
 
     if (a->sel != prev_sel) { dirty = 1; a->idle_frames = 0; }
     else a->idle_frames++;
@@ -380,7 +442,8 @@ static void draw_hero(App *a, Canvas *c) {
 
     float btn_y = by + 72;
     float bw = draw_button(c, x, btn_y, "Jugar", G_CROSS, 1);
-    draw_button(c, x + bw + 16, btn_y, "Detalles", G_TRIANGLE, 0);
+    bw += 16 + draw_button(c, x + bw + 16, btn_y, "Detalles", G_TRIANGLE, 0);
+    draw_button(c, x + bw + 16, btn_y, "Explorar", G_SQUARE, 0);
 
     draw_cover(a, c, g);
 }
@@ -441,12 +504,25 @@ static void draw_footer(App *a, Canvas *c) {
     fill_rect(c, 0, (int)y, SCREEN_W, SCREEN_H - (int)y, C_BG, 0.72f);
     fill_rect(c, 0, (int)y, SCREEN_W, 1, 0xFFFFFF, 0.08f);
     float cy = y + 40;
-    draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "VAULT " VAULT_VERSION " \xC2\xB7 Motor M33 \xC2\xB7 Fase 2", C_MUTED, 1, 0);
+    float lw = draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "VAULT " VAULT_VERSION " \xC2\xB7 Motor M33", C_MUTED, 1, 0);
+    if (!a->browser.open && a->modal == MODAL_NONE) {
+        float kx = PAD_X + lw + 40;
+        kx += key_chip(c, kx, cy, "OPTIONS") + 10;
+        draw_text(c, FONT_BODY, 20, kx, cy + 7, "Escanear", C_MUTED, 1, 0);
+    }
 
-    struct { Glyph g; const char *t; } hints[] = {
-        { G_CROSS, a->view_count ? "Jugar" : "Escanear" }, { G_TRIANGLE, "Detalles" }, { G_SQUARE, "Escanear" },
+    struct { Glyph g; const char *t; } hints[4] = {
+        { G_CROSS, "Jugar" }, { G_TRIANGLE, "Detalles" }, { G_SQUARE, "Explorar" },
     };
-    int nh = a->view_count ? 3 : 1;
+    int nh = 3;
+    if (!a->view_count) { hints[0].t = "Explorar"; nh = 1; }
+    if (a->browser.open) {
+        int game = a->browser.count && a->browser.entries[a->browser.sel].kind == ENTRY_GAME;
+        hints[0].g = G_CROSS; hints[0].t = game ? "Jugar" : "Abrir";
+        hints[1].g = G_TRIANGLE; hints[1].t = "Agregar carpeta";
+        hints[2].g = G_CIRCLE; hints[2].t = a->browser.at_root ? "Cerrar" : "Atr\xC3\xA1s";
+        nh = 3;
+    }
     if (a->modal != MODAL_NONE) { hints[0].g = G_CIRCLE; hints[0].t = "Cerrar"; nh = 1; }
     float x = SCREEN_W - PAD_X;
     for (int i = nh - 1; i >= 0; i--) {
@@ -461,7 +537,7 @@ static void draw_footer(App *a, Canvas *c) {
 
 static void draw_modal(App *a, Canvas *c) {
     Game *g = selected(a);
-    if (!g) return;
+    if (!g && a->modal == MODAL_DETAILS) return;
     fill_rect(c, 0, 0, SCREEN_W, SCREEN_H, 0x000000, 0.62f);
     float w = 1000, h = a->modal == MODAL_DETAILS ? 560 : 440, x = (SCREEN_W - w) / 2, y = (SCREEN_H - h) / 2 - 20;
     shadow_rrect(c, x, y + 30, w, h, 28, 80, 0.7f);
@@ -523,6 +599,112 @@ static void draw_modal(App *a, Canvas *c) {
     }
 }
 
+
+// ------------------------------------------------------------------ Explorar window
+
+static void icon_drive(Canvas *c, float x, float y, uint32_t col) {
+    stroke_rrect(c, x, y + 6, 34, 22, 5, 2, col, 1);
+    fill_circle(c, x + 26, y + 17, 2.5f, col, 1);
+    fill_rect(c, (int)x + 7, (int)y + 15, 12, 2, col, 0.8f);
+}
+static void icon_folder(Canvas *c, float x, float y, uint32_t col) {
+    fill_rrect(c, x, y + 4, 14, 8, 2, col, 0.9f);
+    fill_rrect(c, x, y + 8, 34, 22, 4, col, 0.9f);
+}
+static void icon_disc(Canvas *c, float x, float y, uint32_t col) {
+    fill_circle(c, x + 17, y + 17, 15, col, 1);
+    fill_circle(c, x + 17, y + 17, 4, C_PANEL, 1);
+    stroke_circle(c, x + 17, y + 17, 9, 1.2f, C_INK, 0.35f);
+}
+static void icon_file(Canvas *c, float x, float y, uint32_t col) {
+    stroke_rrect(c, x + 6, y + 2, 22, 30, 3, 1.8f, col, 1);
+    fill_rect(c, (int)x + 11, (int)y + 12, 12, 2, col, 0.8f);
+    fill_rect(c, (int)x + 11, (int)y + 18, 12, 2, col, 0.8f);
+}
+
+static void draw_browser(App *a, Canvas *c) {
+    Browser *b = &a->browser;
+    fill_rect(c, 0, 0, SCREEN_W, SCREEN_H, 0x000000, 0.66f);
+    float w = 1600, h = 872, x = (SCREEN_W - w) / 2, y = 88;
+    shadow_rrect(c, x, y + 30, w, h, 32, 90, 0.7f);
+    fill_rrect(c, x, y, w, h, 32, C_PANEL, 1);
+    stroke_rrect(c, x, y, w, h, 32, 1.5f, 0xFFFFFF, 0.1f);
+    float px = x + 56;
+
+    draw_text(c, FONT_MONO, 18, px, y + 62, "EXPLORAR", C_ACCENT, 1, 3.6f);
+    char where[512], we[300];
+    snprintf(where, sizeof where, "%s", b->at_root ? "Unidades" : b->path);
+    text_ellipsize(FONT_DISPLAY, 38, where, w - 460, we, sizeof we, -0.5f);
+    draw_text(c, FONT_DISPLAY, 38, px - 2, y + 112, we, C_TEXT, 1, -0.5f);
+    int games = 0, dirs = 0;
+    for (int i = 0; i < b->count; i++) { games += b->entries[i].kind == ENTRY_GAME; dirs += b->entries[i].kind == ENTRY_DIR; }
+    char count[96];
+    if (b->at_root) snprintf(count, sizeof count, "%d unidad%s", b->count, b->count == 1 ? "" : "es");
+    else snprintf(count, sizeof count, "%d juego%s \xC2\xB7 %d carpeta%s%s", games, games == 1 ? "" : "s", dirs, dirs == 1 ? "" : "s", b->truncated ? " \xC2\xB7 +" : "");
+    float cw = text_width(FONT_MONO, 18, count, 0);
+    draw_text(c, FONT_MONO, 18, x + w - 56 - cw, y + 104, count, C_MUTED, 1, 0);
+    fill_rect(c, (int)px, (int)(y + 140), (int)(w - 112), 1, 0xFFFFFF, 0.08f);
+
+    const float row_h = 62, list_y = y + 156, list_w = w - 112;
+    if (b->error[0]) {
+        draw_text(c, FONT_BODY, 22, px, list_y + 40, b->error, 0xFF8A80, 1, 0);
+    }
+    if (!b->count) {
+        const char *empty = b->at_root ? "No encontr\xC3\xA9 ninguna unidad. Conecta una memoria USB." : "Carpeta vac\xC3\xAD" "a";
+        float ew = text_width(FONT_BODY, 26, empty, 0);
+        draw_text(c, FONT_BODY, 26, x + (w - ew) / 2, list_y + 5 * row_h, empty, C_MUTED, 1, 0);
+    }
+    for (int i = 0; i < b->count; i++) {
+        float rel = i - b->scroll;
+        if (rel < -0.5f || rel > BROWSER_ROWS - 0.5f) continue;
+        float ry = list_y + rel * row_h;
+        BrowserEntry *e = &b->entries[i];
+        int on = i == b->sel;
+        if (on) {
+            fill_rrect(c, px - 12, ry, list_w + 24, row_h - 6, 14, C_ACCENT, 0.12f);
+            stroke_rrect(c, px - 12, ry, list_w + 24, row_h - 6, 14, 2, C_ACCENT, 0.7f);
+        }
+        float iy = ry + (row_h - 6) / 2 - 17;
+        uint32_t ic = e->kind == ENTRY_GAME ? C_ACCENT : e->kind == ENTRY_FILE ? C_DIM : C_SOFT;
+        switch (e->kind) {
+        case ENTRY_DRIVE: icon_drive(c, px + 4, iy, ic); break;
+        case ENTRY_DIR: icon_folder(c, px + 4, iy, ic); break;
+        case ENTRY_GAME: icon_disc(c, px + 4, iy, e->name[0] && strlen(e->name) > 4 && (e->name[strlen(e->name) - 3] | 32) == 'c' ? C_CSO : C_ACCENT); break;
+        default: icon_file(c, px + 4, iy, ic); break;
+        }
+        char name[200];
+        float note_w = text_width(FONT_MONO, 18, e->note, 0);
+        text_ellipsize(e->kind == ENTRY_FILE ? FONT_BODY : FONT_DISPLAY, 24, e->name, list_w - 120 - note_w - 120, name, sizeof name, 0);
+        float base = ry + (row_h - 6) / 2 + 8;
+        uint32_t tc = e->kind == ENTRY_FILE ? C_DIM : C_TEXT;
+        float nw = draw_text(c, e->kind == ENTRY_FILE ? FONT_BODY : FONT_DISPLAY, 24, px + 60, base, name, tc, 1, 0);
+        if (e->kind == ENTRY_GAME) {
+            int cso = (e->name[strlen(e->name) - 3] | 32) == 'c';
+            pill(c, px + 60 + nw + 16, ry + (row_h - 6) / 2 - 13, cso ? "CSO" : "ISO", cso ? C_CSO : C_ACCENT, 1, C_INK, FONT_MONO, 14, 9, 26);
+        }
+        draw_text(c, FONT_MONO, 18, px + list_w - note_w, base - 1, e->note, C_MUTED, 1, 0);
+    }
+    // Scrollbar
+    if (b->count > BROWSER_ROWS) {
+        float track_h = BROWSER_ROWS * row_h - 6, th = fmaxf(40, track_h * BROWSER_ROWS / b->count);
+        float ty = list_y + (track_h - th) * (b->scroll / (b->count - BROWSER_ROWS));
+        fill_rrect(c, x + w - 26, list_y, 6, track_h, 3, 0xFFFFFF, 0.06f);
+        fill_rrect(c, x + w - 26, ty, 6, th, 3, 0xFFFFFF, 0.35f);
+    }
+    // Bottom line: feedback, or what Triangle does here.
+    float by = y + h - 40;
+    fill_rect(c, (int)px, (int)(by - 44), (int)(w - 112), 1, 0xFFFFFF, 0.08f);
+    if (b->toast_frames > 0 && b->toast[0]) {
+        draw_text(c, FONT_BODY, 22, px, by, b->toast, C_ACCENT, 1, 0);
+    } else {
+        const char *tip = b->at_root ? "Agrega la unidad entera a tu biblioteca"
+                                     : "Agrega esta carpeta a tu biblioteca: sus juegos aparecer\xC3\xA1n siempre";
+        ps_glyph(c, G_TRIANGLE, px + 13, by - 7, 13, 0);
+        draw_text(c, FONT_BODY, 21, px + 38, by, tip, C_MUTED, 1, 0);
+        draw_text(c, FONT_MONO, 16, x + w - 56 - text_width(FONT_MONO, 16, "L1 / R1  p\xC3\xA1gina", 0), by - 2, "L1 / R1  p\xC3\xA1gina", C_DIM, 1, 0);
+    }
+}
+
 void app_draw(App *a, Canvas *c, int hh, int mm) {
     Game *g = selected(a);
     int gi = g ? a->view[a->sel] : -1;
@@ -536,6 +718,7 @@ void app_draw(App *a, Canvas *c, int hh, int mm) {
     draw_hero(a, c);
     draw_library(a, c);
     draw_footer(a, c);
+    if (a->browser.open) { draw_browser(a, c); draw_footer(a, c); }
     if (a->modal != MODAL_NONE) { draw_modal(a, c); draw_footer(a, c); }
 }
 
@@ -554,21 +737,21 @@ void app_launch_failed(App *a, int code) {
 
 // Full-screen hand-off card shown while the console switches to M33.
 void app_draw_launching(App *a, Canvas *c) {
-    Game *g = selected(a);
-    if (!g) return;
+    // The game being launched: from the library, or a file picked in Explorar.
+    Game *g = NULL;
+    for (int i = 0; i < a->lib.count; i++)
+        if (strcmp(a->lib.games[i].path, a->launch_path) == 0) { g = &a->lib.games[i]; break; }
     canvas_blit(c, &a->bg);
     fill_rect(c, 0, 0, SCREEN_W, SCREEN_H, C_BG, 0.55f);
     float cw = COVER_W, ch = COVER_H, cx = (SCREEN_W - cw) / 2, cy = 270;
     shadow_rrect(c, cx, cy + 30, cw, ch, 28, 90, 0.7f);
-    int gi = a->view[a->sel];
-    if (a->cover.px && a->cover_for == gi && a->cover.w == COVER_W) {
-        // Cover is 644x362; centre it inside the card.
-        draw_image_rounded(c, &a->cover, (int)cx, (int)cy, 28, 1);
-    } else {
-        fallback_art(c, cx, cy, cw, ch, 28, g->c1, g->c2);
-    }
+    int gi = g ? (int)(g - a->lib.games) : -2;
+    if (g && a->cover.px && a->cover_for == gi) draw_image_rounded(c, &a->cover, (int)cx, (int)cy, 28, 1);
+    else if (g && g->tile.px) { Image big = image_scale_cover(&g->tile, (int)cw, (int)ch); draw_image_rounded(c, &big, (int)cx, (int)cy, 28, 1); image_free(&big); }
+    else fallback_art(c, cx, cy, cw, ch, 28, g ? g->c1 : 0x3DF5C8, g ? g->c2 : 0x1B6CFF);
+    const char *title = g ? g->title : strrchr(a->launch_path, '/') ? strrchr(a->launch_path, '/') + 1 : a->launch_path;
     char t[160];
-    text_ellipsize(FONT_DISPLAY, 64, g->title, SCREEN_W - 200, t, sizeof t, -1.5f);
+    text_ellipsize(FONT_DISPLAY, 64, title, SCREEN_W - 200, t, sizeof t, -1.5f);
     float tw = text_width(FONT_DISPLAY, 64, t, -1.5f);
     draw_text(c, FONT_DISPLAY, 64, (SCREEN_W - tw) / 2, cy + ch + 130, t, C_TEXT, 1, -1.5f);
     const char *sub = "Abriendo el motor PSP\xE2\x80\xA6";

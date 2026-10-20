@@ -30,8 +30,20 @@ Formatos: `.iso` y `.cso` (CISO v1). VAULT saca de cada disco el título, el ID,
 | L1 / R1 | Filtro: Todos · ISO · CSO |
 | ✕ | Jugar (abre M33 con el juego) |
 | △ | Detalles del archivo |
-| □ | Volver a escanear |
-| ○ | Cerrar ventana |
+| □ | **Explorar**: navega USB y disco interno |
+| OPTIONS | Volver a escanear |
+
+### Explorar
+
+Muestra las unidades conectadas (USB0 a USB7, juegos de M33, disco interno y todo el sistema).
+
+| Botón | Acción |
+| --- | --- |
+| ↑ ↓ | Moverse |
+| L1 / R1 | Página arriba o abajo |
+| ✕ | Abrir una carpeta, o jugar un `.iso` / `.cso` |
+| △ | Agregar la carpeta actual a tu biblioteca (se guarda en `/data/vault/folders.txt`) |
+| ○ | Subir una carpeta; en la lista de unidades, cerrar |
 
 ## Cómo se abre un juego
 

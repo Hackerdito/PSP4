@@ -5,11 +5,11 @@
 #   make clean
 
 TITLE       := VAULT
-VERSION     := 01.04
+VERSION     := 01.05
 TITLE_ID    := VALT00001
 CONTENT_ID  := IV0000-VALT00001_00-VAULTPSPLAUNCHER
 
-SRCS        := src/main.c src/ui.c src/gfx.c src/disc.c src/library.c
+SRCS        := src/main.c src/ui.c src/gfx.c src/disc.c src/library.c src/browser.c
 PS4_SRCS    := $(SRCS) src/platform_ps4.c
 HOST_SRCS   := $(SRCS) src/platform_host.c
 
