@@ -184,27 +184,32 @@ static void blit_frame(uint32_t *dst) {
         for (int x = 0; x < OUT_W; x++) xmap[x] = (int)((uint64_t)x * S.fw / OUT_W);
         map_w = S.fw;
     }
+    // Each output row is built in ordinary (cached) memory and then copied out: the screen's
+    // memory is write-combined, and reading a row back from it (to repeat it) took ~60 ms a frame.
     static uint32_t row[1024];
+    static uint32_t scaled[OUT_W];
     int prev_sy = -1;
     for (int y = 0; y < SCREEN_H; y++) {
         uint32_t *out = dst + (size_t)y * SCREEN_W + OUT_X;
         int sy = (int)((uint64_t)y * S.fh / SCREEN_H);
-        if (sy == prev_sy) { memcpy(out, out - SCREEN_W, OUT_W * 4); continue; }
-        prev_sy = sy;
-        const uint8_t *src = (const uint8_t *)S.frame + (size_t)sy * S.pitch;
-        unsigned w = S.fw > 1024 ? 1024 : S.fw;
-        if (S.fmt == RETRO_PIXEL_FORMAT_XRGB8888) {
-            const uint32_t *p = (const uint32_t *)src;
-            for (unsigned x = 0; x < w; x++) row[x] = p[x] | 0xFF000000u;
-        } else {
-            const uint16_t *p = (const uint16_t *)src;
-            for (unsigned x = 0; x < w; x++) {
-                uint32_t c = p[x];
-                uint32_t r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
-                row[x] = 0xFF000000u | ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2);
+        if (sy != prev_sy) {
+            prev_sy = sy;
+            const uint8_t *src = (const uint8_t *)S.frame + (size_t)sy * S.pitch;
+            unsigned w = S.fw > 1024 ? 1024 : S.fw;
+            if (S.fmt == RETRO_PIXEL_FORMAT_XRGB8888) {
+                const uint32_t *p = (const uint32_t *)src;
+                for (unsigned x = 0; x < w; x++) row[x] = p[x] | 0xFF000000u;
+            } else {
+                const uint16_t *p = (const uint16_t *)src;
+                for (unsigned x = 0; x < w; x++) {
+                    uint32_t c = p[x];
+                    uint32_t r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+                    row[x] = 0xFF000000u | ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2);
+                }
             }
+            for (int x = 0; x < OUT_W; x++) scaled[x] = row[xmap[x]];
         }
-        for (int x = 0; x < OUT_W; x++) out[x] = row[xmap[x]];
+        memcpy(out, scaled, OUT_W * 4);   // write-only to the screen
     }
 }
 
