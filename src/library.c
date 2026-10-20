@@ -265,7 +265,7 @@ void library_scan(Library *lib, int tile_w, int tile_h) {
 #endif
     lib->data_readable = data != NULL;
     if (data) closedir(data);
-    if (g_log) fprintf(g_log, "VAULT scan. /data legible: %s\n", lib->data_readable ? "si" : "NO (sandbox)");
+    if (g_log) fprintf(g_log, "SAMPSP4 scan. /data legible: %s\n", lib->data_readable ? "si" : "NO (sandbox)");
 
     // Fixed folders, then the ones added from Explorar.
     GameDir dirs[48];

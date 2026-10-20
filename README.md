@@ -1,4 +1,4 @@
-# VAULT: launcher de juegos PSP para PS4
+# SAMPSP4: juegos de PSP en tu PS4
 
 VAULT es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de PSP en formato `.iso` y `.cso` y los muestra en una biblioteca moderna: portada, título real, ID de disco, tamaño y nivel de compresión.
 

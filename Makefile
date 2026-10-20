@@ -4,7 +4,7 @@
 #   make host       -> desktop test build that renders screenshots to build/host/
 #   make clean
 
-TITLE       := VAULT
+TITLE       := SAMPSP4
 VERSION     := 01.06
 TITLE_ID    := VALT00001
 CONTENT_ID  := IV0000-VALT00001_00-VAULTPSPLAUNCHER

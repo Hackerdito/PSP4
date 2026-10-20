@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packages VAULT with its built-in PSP engine (PPSSPP, from M33's PS4 port) into one PKG.
+# Packages SAMPSP4 (VAULT's screen + its built-in PSP engine) (PPSSPP, from M33's PS4 port) into one PKG.
 #
 #   engine/package-vault.sh <version XX.YY>
 #
@@ -25,14 +25,14 @@ echo "$VERSION" > "$STAGE/version.txt"
 tar -C "$SRC/assets" --exclude=debugger --exclude=upload --exclude=.git -cf - . | tar -C "$STAGE/assets" -xf -
 cp -r "$M33/assets/." "$STAGE/assets/"
 python3 "$M33/scripts/brand-stage.py" "$STAGE/assets" "$M33"
-# The port's texts say "M33" where PPSSPP said "PPSSPP": in this app, that's VAULT.
-sed -i 's/\bM33\b/VAULT/g' "$STAGE"/assets/lang/*.ini
+# The port's texts say "M33" where PPSSPP said "PPSSPP": in this app, that's SAMPSP4.
+sed -i 's/\bM33\b/SAMPSP4/g' "$STAGE"/assets/lang/*.ini
 # VAULT's own screen.
 cp "$REPO/assets/fonts/"* "$STAGE/vault/fonts/"
 find "$STAGE" -type d -empty -delete
 
 PKG="$(SFO_STYLE=plain NO_RIGHT_SPRX=1 DOLPHIN_PS4_MODULES_DIR=/nonexistent \
-    "$M33/scripts/make-pkg.sh" "$STAGE" VALT00001 "VAULT" "$VERSION" VAULTPSPLAUNCHER "$PSB/out" | tail -1)"
+    "$M33/scripts/make-pkg.sh" "$STAGE" VALT00001 "SAMPSP4" "$VERSION" VAULTPSPLAUNCHER "$PSB/out" | tail -1)"
 mkdir -p "$REPO/out"
-cp "$PKG" "$REPO/out/VAULT-v$VERSION.pkg"
-ls -la "$REPO/out/VAULT-v$VERSION.pkg"
+cp "$PKG" "$REPO/out/SAMPSP4-v$VERSION.pkg"
+ls -la "$REPO/out/SAMPSP4-v$VERSION.pkg"

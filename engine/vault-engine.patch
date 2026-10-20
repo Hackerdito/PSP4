@@ -120,7 +120,7 @@ index e1a4465..515ab97 100644
  		return;
  	char line[160];
 diff --git a/ps4/PS4QuickMenu.cpp b/ps4/PS4QuickMenu.cpp
-index 9a67f77..0ff61c3 100644
+index 9a67f77..5b2ac48 100644
 --- a/ps4/PS4QuickMenu.cpp
 +++ b/ps4/PS4QuickMenu.cpp
 @@ -87,7 +87,7 @@ enum Row {
@@ -137,13 +137,13 @@ index 9a67f77..0ff61c3 100644
  void M33QuickMenu::DrawMain(UIContext &dc, DrawBuffer *db, float x0, float right, float W, float H, float k, float a, double now) {
  	const float lx = x0 + 70 * k;
 -	Text(dc, "M33", lx, 78 * k, 44 * k, Col(TEXT, a));
-+	Text(dc, "VAULT", lx, 78 * k, 44 * k, Col(TEXT, a));
++	Text(dc, "SAMPSP4", lx, 78 * k, 44 * k, Col(TEXT, a));
  	// the tag: the game is paused behind
  	const char *tagText = M33T("QUICK MENU");
  	const float tagW = TextW(dc, tagText, 20 * k) + 28 * k;
  	const float pulse = 0.75f + 0.25f * std::sin((float)now * 3.0f);
 -	const float tagX = lx + TextW(dc, "M33", 44 * k) + 20 * k;
-+	const float tagX = lx + TextW(dc, "VAULT", 44 * k) + 20 * k;
++	const float tagX = lx + TextW(dc, "SAMPSP4", 44 * k) + 20 * k;
  	const uint32_t tagCol = Col(ACCENT, 0.9f * a * pulse);
  	Quad(db, tagX, 92 * k, tagX + tagW, 122 * k, tagCol, tagCol, tagCol, tagCol);
  	Text(dc, tagText, tagX + 14 * k, 107 * k, 20 * k, Col(TEXT, a), ALIGN_LEFT | ALIGN_VCENTER);

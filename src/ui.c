@@ -18,6 +18,7 @@
 #define C_DIM     0x6B7180
 #define C_ACCENT  0x3DF5C8
 #define C_CSO     0xFF9A5C
+#define C_BRAND   0x3F7BFF   // SAMPSP4 blue (the icon's #0042FC, lifted for a dark background)
 #define C_INK     0x07080C
 
 #define PAD_X     96
@@ -201,7 +202,7 @@ static int browser_update(App *a, uint32_t pressed) {
         BrowserEntry *e = &b->entries[b->sel];
         if (e->kind == ENTRY_DRIVE || e->kind == ENTRY_DIR) browser_enter(b, e->full);
         else if (e->kind == ENTRY_GAME) request_launch(a, e->full);
-        else browser_toast(b, "VAULT abre juegos .iso y .cso");
+        else browser_toast(b, "SAMPSP4 abre juegos .iso y .cso");
         dirty = 1;
     }
     if (pressed & BTN_TRIANGLE) {
@@ -283,11 +284,11 @@ int app_update(App *a, uint32_t pressed, uint32_t held) {
 
 static void draw_header(App *a, Canvas *c, int hh, int mm) {
     float y = 84;
-    // Logo: a "V" with a dot, then the wordmark.
-    draw_line(c, PAD_X + 4, y - 30, PAD_X + 18, y - 6, 4, C_ACCENT, 1);
-    draw_line(c, PAD_X + 18, y - 6, PAD_X + 32, y - 30, 4, C_ACCENT, 1);
-    fill_circle(c, PAD_X + 18, y - 25, 3, C_ACCENT, 1);
-    draw_text(c, FONT_DISPLAY, 30, PAD_X + 50, y - 6, "VAULT", C_TEXT, 1, 7);
+    // Wordmark: SAM PSP 4, with PSP in the brand blue (as on the app icon).
+    float wx = PAD_X;
+    wx += draw_text(c, FONT_DISPLAY, 32, wx, y - 6, "SAM", C_TEXT, 1, 3);
+    wx += draw_text(c, FONT_DISPLAY, 32, wx, y - 6, "PSP", C_BRAND, 1, 3);
+    draw_text(c, FONT_DISPLAY, 32, wx, y - 6, "4", C_TEXT, 1, 3);
 
     // Format filter (L1 / R1).
     float x = PAD_X + 260;
@@ -362,8 +363,8 @@ static void draw_cover(App *a, Canvas *c, Game *g) {
 static void draw_empty_report(App *a, Canvas *c, float x, float y) {
     Library *L = &a->lib;
     if (!L->data_readable) {
-        draw_text(c, FONT_BODY, 26, x, y, "VAULT no pudo leer /data: sigue dentro del sandbox.", 0xFF8A80, 1, 0);
-        draw_text(c, FONT_BODY, 22, x, y + 36, "Activa GoldHEN antes de abrir VAULT y vuelve a entrar.", C_SOFT, 1, 0);
+        draw_text(c, FONT_BODY, 26, x, y, "SAMPSP4 no pudo leer /data: sigue dentro del sandbox.", 0xFF8A80, 1, 0);
+        draw_text(c, FONT_BODY, 22, x, y + 36, "Activa GoldHEN antes de abrir SAMPSP4 y vuelve a entrar.", C_SOFT, 1, 0);
         y += 84;
     } else {
         draw_text(c, FONT_BODY, 24, x, y, "Esto encontr\xC3\xA9 (.iso y .cso; las USB se revisan completas):", C_SOFT, 1, 0);
@@ -400,8 +401,8 @@ static void draw_hero(App *a, Canvas *c) {
     Game *g = selected(a);
     float x = PAD_X, y = 236;
     if (!g) {
-        draw_text(c, FONT_MONO, 18, x, y, a->lib.count ? "SIN RESULTADOS EN ESTE FILTRO" : "BIENVENIDO A VAULT", C_ACCENT, 1, 3.6f);
-        draw_text(c, FONT_DISPLAY, 76, x - 4, y + 88, a->lib.count ? "Nada por aqu\xC3\xAD" : "Tu b\xC3\xB3veda est\xC3\xA1 vac\xC3\xAD" "a", C_TEXT, 1, -2);
+        draw_text(c, FONT_MONO, 18, x, y, a->lib.count ? "SIN RESULTADOS EN ESTE FILTRO" : "BIENVENIDO A SAMPSP4", C_ACCENT, 1, 3.6f);
+        draw_text(c, FONT_DISPLAY, 76, x - 4, y + 88, a->lib.count ? "Nada por aqu\xC3\xAD" : "Tu biblioteca est\xC3\xA1 vac\xC3\xAD" "a", C_TEXT, 1, -2);
         if (a->lib.count) {
             draw_text(c, FONT_BODY, 26, x, y + 170, "Cambia el filtro con L1 / R1.", C_SOFT, 1, 0);
         } else {
@@ -502,7 +503,7 @@ static void draw_footer(App *a, Canvas *c) {
     fill_rect(c, 0, (int)y, SCREEN_W, SCREEN_H - (int)y, C_BG, 0.72f);
     fill_rect(c, 0, (int)y, SCREEN_W, 1, 0xFFFFFF, 0.08f);
     float cy = y + 40;
-    float lw = draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "VAULT " VAULT_VERSION " \xC2\xB7 Motor PSP integrado", C_MUTED, 1, 0);
+    float lw = draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "SAMPSP4 " VAULT_VERSION " \xC2\xB7 Motor PSP integrado", C_MUTED, 1, 0);
     if (!a->browser.open && a->modal == MODAL_NONE) {
         float kx = PAD_X + lw + 40;
         kx += key_chip(c, kx, cy, "OPTIONS") + 10;
