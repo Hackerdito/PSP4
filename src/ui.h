@@ -4,7 +4,7 @@
 #include "library.h"
 #include "browser.h"
 
-typedef enum { MODAL_NONE = 0, MODAL_PLAY, MODAL_DETAILS, MODAL_NO_ENGINE, MODAL_LAUNCH_ERROR } Modal;
+typedef enum { MODAL_NONE = 0, MODAL_PLAY, MODAL_DETAILS, MODAL_NO_ENGINE, MODAL_LAUNCH_ERROR, MODAL_PS1 } Modal;
 
 typedef struct {
     Library lib;

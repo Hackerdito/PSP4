@@ -210,3 +210,70 @@ int sfo_get_string(const uint8_t *sfo, size_t len, const char *key, char *out, s
     }
     return 0;
 }
+
+// ---------------------------------------------------------------- formats / EBOOT.PBP
+
+int disc_format_from_name(const char *name) {
+    if (has_ext(name, ".iso")) return DISC_ISO;
+    if (has_ext(name, ".cso")) return DISC_CSO;
+    if (has_ext(name, ".pbp")) return DISC_PBP;
+    if (has_ext(name, ".chd")) return DISC_CHD;
+    return -1;
+}
+
+const char *disc_format_name(DiscFormat f) {
+    switch (f) {
+    case DISC_CSO: return "CSO";
+    case DISC_PBP: return "PBP";
+    case DISC_CHD: return "CHD";
+    default: return "ISO";
+    }
+}
+
+// Header: "\0PBP", version, then 8 entry offsets; each entry runs to the next offset (the last
+// one to the end of the file).
+static int pbp_entry_span(FILE *f, int entry, uint32_t *off, uint32_t *len) {
+    uint8_t h[40];
+    if (fseek(f, 0, SEEK_SET) != 0 || fread(h, 1, sizeof h, f) != sizeof h) return 0;
+    if (memcmp(h, "\0PBP", 4) != 0) return 0;
+    uint32_t start = rd32(h + 8 + entry * 4), end;
+    if (entry < 7) end = rd32(h + 8 + (entry + 1) * 4);
+    else { fseek(f, 0, SEEK_END); end = (uint32_t)ftell(f); }
+    if (end < start) return 0;
+    *off = start; *len = end - start;
+    return 1;
+}
+
+uint8_t *pbp_read_entry(const char *path, int entry, size_t *len, size_t max_len) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return NULL;
+    uint32_t off, n;
+    uint8_t *buf = NULL;
+    if (pbp_entry_span(f, entry, &off, &n) && n > 0 && n <= max_len) {
+        buf = malloc(n);
+        if (fseek(f, off, SEEK_SET) != 0 || fread(buf, 1, n, f) != n) { free(buf); buf = NULL; }
+        else *len = n;
+    }
+    fclose(f);
+    return buf;
+}
+
+int pbp_is_ps1(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    uint32_t off, n;
+    int ps1 = 0;
+    char magic[12] = { 0 };
+    if (pbp_entry_span(f, PBP_PSAR, &off, &n) && n >= sizeof magic && fseek(f, off, SEEK_SET) == 0 &&
+        fread(magic, 1, sizeof magic, f) == sizeof magic)
+        ps1 = memcmp(magic, "PSISOIMG", 8) == 0 || memcmp(magic, "PSTITLEIMG", 10) == 0;
+    fclose(f);
+    if (!ps1) {   // or the SFO says so (CATEGORY "ME")
+        size_t len;
+        uint8_t *sfo = pbp_read_entry(path, PBP_SFO, &len, 64 * 1024);
+        char cat[8];
+        if (sfo && sfo_get_string(sfo, len, "CATEGORY", cat, sizeof cat) && strcmp(cat, "ME") == 0) ps1 = 1;
+        free(sfo);
+    }
+    return ps1;
+}

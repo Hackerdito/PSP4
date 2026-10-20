@@ -51,7 +51,7 @@ index 7a9f4ab..461c1de 100644
  	{ "Couldn't download the cheat database", { "No se pudo descargar la base de datos de trucos", "Impossible de télécharger la base de codes", "Cheat-Datenbank konnte nicht heruntergeladen werden", "Impossibile scaricare il database dei trucchi", "Não foi possível baixar o banco de dados de trapaças", "Kon de cheatdatabase niet downloaden", "Nie udało się pobrać bazy kodów", "Hile veritabanı indirilemedi", "Не удалось загрузить базу читов", "チートデータベースをダウンロードできませんでした", "无法下载金手指数据库", "無法下載金手指資料庫", "치트 데이터베이스를 다운로드할 수 없습니다" } },
  	{ "No more cheats for this game in the database", { "No hay más trucos para este juego en la base de datos", "Aucun autre code pour ce jeu dans la base", "Keine weiteren Cheats für dieses Spiel in der Datenbank", "Nessun altro trucco per questo gioco nel database", "Não há mais trapaças para este jogo no banco de dados", "Geen andere cheats voor dit spel in de database", "Brak kolejnych kodów do tej gry w bazie", "Veritabanında bu oyun için başka hile yok", "Других читов для этой игры в базе нет", "データベースにこのゲームのチートは他にありません", "数据库中没有此游戏的更多金手指", "資料庫中沒有此遊戲的更多金手指", "데이터베이스에 이 게임의 다른 치트가 없습니다" } },
 diff --git a/ps4/PS4Main.cpp b/ps4/PS4Main.cpp
-index e1a4465..77f7cda 100644
+index e1a4465..ed5bf5c 100644
 --- a/ps4/PS4Main.cpp
 +++ b/ps4/PS4Main.cpp
 @@ -71,6 +71,9 @@
@@ -109,24 +109,30 @@ index e1a4465..77f7cda 100644
  
  	// Vulkan is the only backend here.
  	g_Config.iGPUBackend = (int)GPUBackend::VULKAN;
-@@ -272,6 +288,16 @@ int main(int argc, char *argv[]) {
- 	delete graphicsContext;
- 	NativeShutdown();
- 	Trace("exited");
-+	// Leaving a game started from SAMPSP4's screen: start the app again, so its library comes back
-+	// instead of the console's home screen (a fresh process: the emulator can't re-initialise in place).
+@@ -265,6 +281,22 @@ int main(int argc, char *argv[]) {
+ 	Trace("exiting");
+ 	emuThread.join();
+ 
++	// Leaving a game started from SAMPSP4's screen: start the app again so its library comes back,
++	// right away. The full teardown below crashes (NativeShutdown releases the game screen's GPU
++	// objects after the Vulkan context is gone: "mutex lock failed"), and a fresh process doesn't
++	// need it. Settings were saved by the quick menu; the game's own saves are already on disk.
 +	if (fromVault && g_quitRequested) {
++		PS4Pad::Shutdown();
++		PS4Audio::Stop();
 +		Trace("back to SAMPSP4");
 +		const char *args[] = { nullptr };
 +		const int rc = sceSystemServiceLoadExec("/app0/eboot.bin", args);
-+		char line[64];
-+		snprintf(line, sizeof(line), "LoadExec failed (%x): to the home screen", (uint32_t)rc);
++		char line[80];
++		snprintf(line, sizeof(line), "LoadExec failed (%x): closing to the home screen", (uint32_t)rc);
 +		Trace(line);
++		_exit(0);  // no destructors: they'd hit the same crash
 +	}
- 	return 0;
- }
- 
-@@ -280,7 +306,7 @@ int main(int argc, char *argv[]) {
++
+ 	PS4Pad::Shutdown();
+ 	PS4Audio::Stop();
+ 	graphicsContext->ShutdownSurface();
+@@ -280,7 +312,7 @@ int main(int argc, char *argv[]) {
  extern "C" void ps4_crash_guest_info() {
  	if (!currentMIPS)
  		return;

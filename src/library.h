@@ -13,7 +13,8 @@ typedef struct {
     char disc_id[16];      // e.g. ULUS10041
     char source[16];       // "USB0", "Interno"
     DiscFormat fmt;
-    int is_psp;            // PSP_GAME/PARAM.SFO found
+    int is_psp;            // PARAM.SFO found
+    int is_ps1;            // a PS1 classic in an EBOOT.PBP (needs the PS1 engine; not playable yet)
     uint64_t file_size;    // bytes on storage
     uint64_t image_size;   // uncompressed bytes
     uint32_t c1, c2;       // palette for glows / fallback art

@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v1.1"
+#define VAULT_VERSION "v1.2"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
@@ -31,12 +31,19 @@
 #define COVER_W   644
 #define COVER_H   362
 
-static const char *kFilterNames[3] = { "Todos", "ISO", "CSO" };
+#define N_FILTERS 5
+static const char *kFilterNames[N_FILTERS] = { "Todos", "ISO", "CSO", "EBOOT", "CHD" };
+#define C_PBP     0xB9A8FF
+#define C_CHD     0xFFD166
 
 // ------------------------------------------------------------------ helpers
 
-static uint32_t fmt_color(DiscFormat f) { return f == DISC_CSO ? C_CSO : C_ACCENT; }
-static const char *fmt_name(DiscFormat f) { return f == DISC_CSO ? "CSO" : "ISO"; }
+static uint32_t fmt_color(DiscFormat f) {
+    return f == DISC_CSO ? C_CSO : f == DISC_PBP ? C_PBP : f == DISC_CHD ? C_CHD : C_ACCENT;
+}
+static const char *fmt_name(DiscFormat f) { return disc_format_name(f); }
+// Filter chip i: 0 all, then one per format in DiscFormat order.
+static int filter_match(int filter, DiscFormat f) { return filter == 0 || (int)f == filter - 1; }
 
 static Game *selected(App *a) {
     if (a->view_count == 0) return NULL;
@@ -143,8 +150,7 @@ static void rebuild_view(App *a) {
     a->view_count = 0;
     for (int i = 0; i < a->lib.count; i++) {
         DiscFormat f = a->lib.games[i].fmt;
-        if (a->filter == 1 && f != DISC_ISO) continue;
-        if (a->filter == 2 && f != DISC_CSO) continue;
+        if (!filter_match(a->filter, f)) continue;
         a->view[a->view_count++] = i;
     }
     if (a->sel >= a->view_count) a->sel = a->view_count ? a->view_count - 1 : 0;
@@ -175,6 +181,12 @@ static void update_scroll_target(App *a) {
 }
 
 static void request_launch(App *a, const char *path) {
+    if (disc_format_from_name(path) == DISC_PBP && pbp_is_ps1(path)) {
+        // PS1 classics need a PS1 engine; it isn't in SAMPSP4 yet.
+        if (a->browser.open) snprintf(a->browser.toast, sizeof a->browser.toast, "Es un juego de PS1: SAMPSP4 todav\xC3\xAD" "a no los abre");
+        else a->modal = MODAL_PS1;
+        return;
+    }
     snprintf(a->launch_path, sizeof a->launch_path, "%s", path);
     a->launch_request = 1;
 }
@@ -202,7 +214,7 @@ static int browser_update(App *a, uint32_t pressed) {
         BrowserEntry *e = &b->entries[b->sel];
         if (e->kind == ENTRY_DRIVE || e->kind == ENTRY_DIR) browser_enter(b, e->full);
         else if (e->kind == ENTRY_GAME) request_launch(a, e->full);
-        else browser_toast(b, "SAMPSP4 abre juegos .iso y .cso");
+        else browser_toast(b, "SAMPSP4 abre juegos .iso, .cso, EBOOT.PBP y .chd");
         dirty = 1;
     }
     if (pressed & BTN_TRIANGLE) {
@@ -248,7 +260,7 @@ int app_update(App *a, uint32_t pressed, uint32_t held) {
     if ((pressed & BTN_RIGHT) && a->sel < a->view_count - 1) a->sel++;
     if ((pressed & BTN_LEFT) && a->sel > 0) a->sel--;
     if (pressed & (BTN_R1 | BTN_L1)) {
-        a->filter = (a->filter + ((pressed & BTN_R1) ? 1 : 2)) % 3;
+        a->filter = (a->filter + ((pressed & BTN_R1) ? 1 : 2)) % N_FILTERS;
         a->sel = 0;
         rebuild_view(a);
         dirty = 1;
@@ -293,10 +305,11 @@ static void draw_header(App *a, Canvas *c, int hh, int mm) {
     // Format filter (L1 / R1).
     float x = PAD_X + 260;
     x += key_chip(c, x, y - 17, "L1") + 14;
-    for (int i = 0; i < 3; i++) {
+    for (int i = 0; i < N_FILTERS; i++) {
         int n = 0;
         for (int k = 0; k < a->lib.count; k++)
-            if (i == 0 || (i == 1 && a->lib.games[k].fmt == DISC_ISO) || (i == 2 && a->lib.games[k].fmt == DISC_CSO)) n++;
+            if (filter_match(i, a->lib.games[k].fmt)) n++;
+        if (n == 0 && i > 2 && a->filter != i) continue;   // EBOOT / CHD chips only when there are some
         char label[32];
         snprintf(label, sizeof label, "%s  %d", kFilterNames[i], n);
         float w = text_width(FONT_BODY, 20, label, 0) + 52;
@@ -367,7 +380,7 @@ static void draw_empty_report(App *a, Canvas *c, float x, float y) {
         draw_text(c, FONT_BODY, 22, x, y + 36, "Activa GoldHEN antes de abrir SAMPSP4 y vuelve a entrar.", C_SOFT, 1, 0);
         y += 84;
     } else {
-        draw_text(c, FONT_BODY, 24, x, y, "Esto encontr\xC3\xA9 (.iso y .cso; las USB se revisan completas):", C_SOFT, 1, 0);
+        draw_text(c, FONT_BODY, 24, x, y, "Esto encontr\xC3\xA9 (.iso .cso .pbp .chd; las USB se revisan completas):", C_SOFT, 1, 0);
         y += 46;
     }
     for (int i = 0; i < L->report_count && i < 6; i++) {
@@ -377,7 +390,7 @@ static void draw_empty_report(App *a, Canvas *c, float x, float y) {
         if (!r->exists) snprintf(status, sizeof status, "no existe");
         else if (r->games) { snprintf(status, sizeof status, "%d juego%s", r->games, r->games == 1 ? "" : "s"); col = C_ACCENT; }
         else if (!r->files && !r->subdirs) snprintf(status, sizeof status, "vac\xC3\xAD" "a");
-        else if (!r->files) snprintf(status, sizeof status, "%d carpeta%s sin .iso/.cso", r->subdirs, r->subdirs == 1 ? "" : "s");
+        else if (!r->files) snprintf(status, sizeof status, "%d carpeta%s sin juegos", r->subdirs, r->subdirs == 1 ? "" : "s");
         else {
             int packed = strstr(r->other, ".zip") || strstr(r->other, ".rar") || strstr(r->other, ".7z");
             snprintf(status, sizeof status, "%s%s", r->other, packed ? "  \xE2\x80\x94 descompr\xC3\xAD" "melos" : "");
@@ -409,13 +422,14 @@ static void draw_hero(App *a, Canvas *c) {
             draw_empty_report(a, c, x, y + 146);
         }
         fallback_art(c, COVER_X, COVER_Y, COVER_W, COVER_H, 28, 0x1B2230, 0x24304A);
-        draw_text(c, FONT_DISPLAY, 44, COVER_X + 32, COVER_Y + COVER_H - 32, "PSP \xC2\xB7 ISO \xC2\xB7 CSO", C_TEXT, 0.9f, -0.5f);
+        draw_text(c, FONT_DISPLAY, 44, COVER_X + 32, COVER_Y + COVER_H - 32, "PSP \xC2\xB7 ISO \xC2\xB7 CSO \xC2\xB7 PBP", C_TEXT, 0.9f, -0.5f);
         return;
     }
 
     char label[96];
-    if (g->is_psp && g->disc_id[0]) snprintf(label, sizeof label, "PSP \xC2\xB7 %s \xC2\xB7 %s", g->disc_id, g->source);
-    else snprintf(label, sizeof label, "%s \xC2\xB7 %s", g->is_psp ? "PSP" : "DISCO", g->source);
+    const char *sys = g->is_ps1 ? "PS1" : g->is_psp ? "PSP" : "DISCO";
+    if (g->disc_id[0]) snprintf(label, sizeof label, "%s \xC2\xB7 %s \xC2\xB7 %s", sys, g->disc_id, g->source);
+    else snprintf(label, sizeof label, "%s \xC2\xB7 %s", sys, g->source);
     for (char *p = label; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
     draw_text(c, FONT_MONO, 18, x, y, label, C_ACCENT, 1, 3.6f);
 
@@ -431,7 +445,7 @@ static void draw_hero(App *a, Canvas *c) {
     float by = ty - size * 0.98f + 40, bx = x;
     char sz[24], ratio[32];
     bx += pill(c, bx, by, fmt_name(g->fmt), fmt_color(g->fmt), 1, C_INK, FONT_MONO, 18, 16, 40) + 12;
-    bx += pill(c, bx, by, g->is_psp ? "PSP" : "Desconocido", 0xFFFFFF, 0.08f, C_SOFT, FONT_MONO, 18, 16, 40) + 12;
+    bx += pill(c, bx, by, g->is_ps1 ? "PS1 \xC2\xB7 pronto" : g->is_psp ? "PSP" : "Desconocido", 0xFFFFFF, 0.08f, C_SOFT, FONT_MONO, 18, 16, 40) + 12;
     format_size(g->image_size, sz, sizeof sz);
     bx += pill(c, bx, by, sz, 0xFFFFFF, 0.08f, C_SOFT, FONT_MONO, 18, 16, 40) + 12;
     if (g->fmt == DISC_CSO && g->image_size) {
@@ -544,10 +558,15 @@ static void draw_modal(App *a, Canvas *c) {
     stroke_rrect(c, x, y, w, h, 28, 1.5f, 0xFFFFFF, 0.1f);
     float px = x + 56, py = y + 84;
 
-    if (a->modal == MODAL_NO_ENGINE || a->modal == MODAL_LAUNCH_ERROR) {
+    if (a->modal == MODAL_NO_ENGINE || a->modal == MODAL_LAUNCH_ERROR || a->modal == MODAL_PS1) {
         char l1[160], l2[160], code[96];
         const char *title;
-        if (a->modal == MODAL_NO_ENGINE) {
+        if (a->modal == MODAL_PS1) {
+            title = "Juego de PS1";
+            snprintf(l1, sizeof l1, "Este EBOOT.PBP es un cl\xC3\xA1sico de PlayStation 1, no de PSP.");
+            snprintf(l2, sizeof l2, "SAMPSP4 todav\xC3\xAD" "a no trae motor de PS1: llegar\xC3\xA1 en una pr\xC3\xB3xima versi\xC3\xB3n.");
+            snprintf(code, sizeof code, "%s", g ? g->file : "EBOOT.PBP");
+        } else if (a->modal == MODAL_NO_ENGINE) {
             title = "Falta el motor PSP";
             snprintf(l1, sizeof l1, "VAULT juega con M33 (PPSSPP para PS4). Inst\xC3\xA1lalo una vez:");
             snprintf(l2, sizeof l2, "descarga M33 v1.03 o m\xC3\xA1s nuevo e inst\xC3\xA1lalo con el Package Installer.");
@@ -558,7 +577,7 @@ static void draw_modal(App *a, Canvas *c) {
             snprintf(l2, sizeof l2, "si tu juego est\xC3\xA1 en /data/March33/games aparece en su lista.");
             snprintf(code, sizeof code, "C\xC3\xB3" "digo 0x%08X \xC2\xB7 %s", (unsigned)a->launch_error, ENGINE_TITLE_ID);
         }
-        draw_text(c, FONT_MONO, 18, px, py - 20, "MOTOR PSP", C_ACCENT, 1, 3.6f);
+        draw_text(c, FONT_MONO, 18, px, py - 20, a->modal == MODAL_PS1 ? "FORMATO" : "MOTOR PSP", C_ACCENT, 1, 3.6f);
         draw_text(c, FONT_DISPLAY, 52, px - 2, py + 44, title, C_TEXT, 1, -1);
         draw_text(c, FONT_BODY, 24, px, py + 104, l1, C_SOFT, 1, 0);
         draw_text(c, FONT_BODY, 24, px, py + 140, l2, C_SOFT, 1, 0);
@@ -579,13 +598,16 @@ static void draw_modal(App *a, Canvas *c) {
     format_size(g->file_size, disk, sizeof disk);
     format_size(g->image_size, real, sizeof real);
     if (g->fmt == DISC_CSO && g->image_size) snprintf(comp, sizeof comp, "%d%% ahorrado", (int)(100 - g->file_size * 100 / g->image_size));
+    else if (g->fmt == DISC_CHD) snprintf(comp, sizeof comp, "Comprimido (CHD)");
+    else if (g->fmt == DISC_PBP) snprintf(comp, sizeof comp, "Paquete EBOOT");
     else snprintf(comp, sizeof comp, "Sin compresi\xC3\xB3n");
     char friendly[512];
     browser_display_path(g->path, friendly, sizeof friendly);
     text_ellipsize(FONT_MONO, 20, friendly, w - 112 - 220, path, sizeof path, 0);
     const char *rows[][2] = {
         { "Archivo", path },
-        { "Formato", g->fmt == DISC_CSO ? "CSO (ISO comprimido)" : "ISO" },
+        { "Formato", g->fmt == DISC_CSO ? "CSO (ISO comprimido)" : g->fmt == DISC_PBP ? (g->is_ps1 ? "EBOOT.PBP (PS1, a\xC3\xBAn no)" : "EBOOT.PBP (PSN / homebrew)")
+                    : g->fmt == DISC_CHD ? "CHD (comprimido)" : "ISO" },
         { "ID de disco", g->disc_id[0] ? g->disc_id : "\xE2\x80\x94" },
         { "En disco", disk },
         { "Tama\xC3\xB1o real", real },
@@ -671,7 +693,7 @@ static void draw_browser(App *a, Canvas *c) {
         switch (e->kind) {
         case ENTRY_DRIVE: icon_drive(c, px + 4, iy, ic); break;
         case ENTRY_DIR: icon_folder(c, px + 4, iy, ic); break;
-        case ENTRY_GAME: icon_disc(c, px + 4, iy, e->name[0] && strlen(e->name) > 4 && (e->name[strlen(e->name) - 3] | 32) == 'c' ? C_CSO : C_ACCENT); break;
+        case ENTRY_GAME: icon_disc(c, px + 4, iy, fmt_color((DiscFormat)disc_format_from_name(e->name))); break;
         default: icon_file(c, px + 4, iy, ic); break;
         }
         char name[200];
@@ -681,8 +703,8 @@ static void draw_browser(App *a, Canvas *c) {
         uint32_t tc = e->kind == ENTRY_FILE ? C_DIM : C_TEXT;
         float nw = draw_text(c, e->kind == ENTRY_FILE ? FONT_BODY : FONT_DISPLAY, 24, px + 60, base, name, tc, 1, 0);
         if (e->kind == ENTRY_GAME) {
-            int cso = (e->name[strlen(e->name) - 3] | 32) == 'c';
-            pill(c, px + 60 + nw + 16, ry + (row_h - 6) / 2 - 13, cso ? "CSO" : "ISO", cso ? C_CSO : C_ACCENT, 1, C_INK, FONT_MONO, 14, 9, 26);
+            DiscFormat ef = (DiscFormat)disc_format_from_name(e->name);
+            pill(c, px + 60 + nw + 16, ry + (row_h - 6) / 2 - 13, fmt_name(ef), fmt_color(ef), 1, C_INK, FONT_MONO, 14, 9, 26);
         }
         draw_text(c, FONT_MONO, 18, px + list_w - note_w, base - 1, e->note, C_MUTED, 1, 0);
     }

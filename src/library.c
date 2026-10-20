@@ -13,13 +13,13 @@
 #include <unistd.h>
 
 // Where VAULT looks. Internal folders are always reported; a USB port only when a drive is in it.
-// USB drives are searched whole (3 folders deep), so games can sit anywhere on them.
+// USB drives are searched whole (4 folders deep, enough for PSP/GAME/<id>/EBOOT.PBP), so games can sit anywhere on them.
 #ifdef VAULT_HOST
 const GameDir kGameDirs[] = {
     { "testdata/data/March33/games", "Interno", 2, 0 },
     { "testdata/data/vault/PSP/GAME", "Interno", 2, 0 },
-    { "testdata/usb0", "USB0", 3, 1 },
-    { "testdata/usb1", "USB1", 3, 1 },
+    { "testdata/usb0", "USB0", 4, 1 },
+    { "testdata/usb1", "USB1", 4, 1 },
     { NULL, NULL, 0, 0 },
 };
 #else
@@ -27,10 +27,10 @@ const GameDir kGameDirs[] = {
     { "/data/vault/games", "Interno", 2, 0 },     // VAULT's games folder (the engine's browser starts here too)
     { "/data/vault/PSP/GAME", "Interno", 2, 0 },
     { "/data/March33/games", "Interno", 2, 1 },   // M33's folder, if it's installed too
-    { "/mnt/usb0", "USB0", 3, 1 }, { "/mnt/usb1", "USB1", 3, 1 },
-    { "/mnt/usb2", "USB2", 3, 1 }, { "/mnt/usb3", "USB3", 3, 1 },
-    { "/mnt/usb4", "USB4", 3, 1 }, { "/mnt/usb5", "USB5", 3, 1 },
-    { "/mnt/usb6", "USB6", 3, 1 }, { "/mnt/usb7", "USB7", 3, 1 },
+    { "/mnt/usb0", "USB0", 4, 1 }, { "/mnt/usb1", "USB1", 4, 1 },
+    { "/mnt/usb2", "USB2", 4, 1 }, { "/mnt/usb3", "USB3", 4, 1 },
+    { "/mnt/usb4", "USB4", 4, 1 }, { "/mnt/usb5", "USB5", 4, 1 },
+    { "/mnt/usb6", "USB6", 4, 1 }, { "/mnt/usb7", "USB7", 4, 1 },
     { NULL, NULL, 0, 0 },
 };
 #endif
@@ -112,39 +112,65 @@ static uint32_t hsv(float h, float s, float v) {
     return RGB((int)(r * 255), (int)(g * 255), (int)(b * 255));
 }
 
+static void apply_sfo(Game *g, uint8_t *sfo, size_t len) {
+    char t[160];
+    g->is_psp = 1;
+    if (sfo_get_string(sfo, len, "TITLE", t, sizeof t) && title_is_latin(t)) {
+        // Titles sometimes carry line breaks.
+        for (char *p = t; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
+        snprintf(g->title, sizeof g->title, "%s", t);
+    }
+    if (!sfo_get_string(sfo, len, "DISC_ID", g->disc_id, sizeof g->disc_id))
+        sfo_get_string(sfo, len, "TITLE_ID", g->disc_id, sizeof g->disc_id);
+}
+
+static void apply_icon(Game *g, uint8_t *png, size_t len, int tile_w, int tile_h) {
+    g->icon = image_decode(png, (int)len);
+    if (g->icon.px) {
+        g->tile = image_scale_cover(&g->icon, tile_w, tile_h);
+        image_palette(&g->icon, &g->c1, &g->c2);
+    }
+}
+
 static void load_meta(Game *g, int tile_w, int tile_h) {
-    Disc *d = disc_open(g->path);
     uint32_t h = hash_str(g->file);
     float hue = (h % 360) / 360.0f;
     g->c1 = hsv(hue, 0.65f, 0.95f);
     g->c2 = hsv(hue + 0.12f > 1 ? hue - 0.88f : hue + 0.12f, 0.75f, 0.85f);
     title_from_file(g->file, g->title, sizeof g->title);
+    // "EBOOT.PBP" says nothing: name the game after its folder until the SFO gives the title.
+    if (strcasecmp(g->file, "EBOOT.PBP") == 0) {
+        char dir[512];
+        snprintf(dir, sizeof dir, "%s", g->path);
+        char *slash = strrchr(dir, '/');
+        if (slash) { *slash = 0; slash = strrchr(dir, '/'); }
+        if (slash) title_from_file(slash + 1, g->title, sizeof g->title);
+    }
+    size_t len;
+
+    if (g->fmt == DISC_PBP) {
+        g->image_size = g->file_size;
+        uint8_t *sfo = pbp_read_entry(g->path, PBP_SFO, &len, 64 * 1024);
+        if (sfo) { apply_sfo(g, sfo, len); free(sfo); }
+        g->is_ps1 = pbp_is_ps1(g->path);
+        uint8_t *png = pbp_read_entry(g->path, PBP_ICON0, &len, 512 * 1024);
+        if (png) { apply_icon(g, png, len, tile_w, tile_h); free(png); }
+        return;
+    }
+    if (g->fmt == DISC_CHD) {   // compressed hunks (zlib/lzma/flac/zstd): shown by file name
+        g->image_size = g->file_size;
+        g->is_psp = 1;
+        return;
+    }
+
+    Disc *d = disc_open(g->path);
     if (!d) return;
     g->fmt = disc_format(d);
     g->image_size = disc_size(d);
-
-    size_t len;
     uint8_t *sfo = disc_read_file(d, "PSP_GAME/PARAM.SFO", &len, 64 * 1024);
-    if (sfo) {
-        char t[160];
-        g->is_psp = 1;
-        if (sfo_get_string(sfo, len, "TITLE", t, sizeof t) && title_is_latin(t)) {
-            // Titles sometimes carry line breaks.
-            for (char *p = t; *p; p++) if (*p == '\n' || *p == '\r') *p = ' ';
-            snprintf(g->title, sizeof g->title, "%s", t);
-        }
-        sfo_get_string(sfo, len, "DISC_ID", g->disc_id, sizeof g->disc_id);
-        free(sfo);
-    }
+    if (sfo) { apply_sfo(g, sfo, len); free(sfo); }
     uint8_t *png = disc_read_file(d, "PSP_GAME/ICON0.PNG", &len, 512 * 1024);
-    if (png) {
-        g->icon = image_decode(png, (int)len);
-        free(png);
-        if (g->icon.px) {
-            g->tile = image_scale_cover(&g->icon, tile_w, tile_h);
-            image_palette(&g->icon, &g->c1, &g->c2);
-        }
-    }
+    if (png) { apply_icon(g, png, len, tile_w, tile_h); free(png); }
     disc_close(d);
 }
 
@@ -223,7 +249,9 @@ static void scan_dir(Library *lib, const char *dirpath, const char *label, int d
             continue;
         }
         r->files++;
-        int is_game = ends_with_ci(e->d_name, ".iso") || ends_with_ci(e->d_name, ".cso");
+        int fmt = disc_format_from_name(e->d_name);
+        // PARAM.PBP is a game update's data, not a game.
+        int is_game = fmt >= 0 && strcasecmp(e->d_name, "PARAM.PBP") != 0;
         if (g_log) fprintf(g_log, "  %s %s (%lld bytes)\n", is_game ? "[juego]" : "[otro] ", full, (long long)path_size(full));
         if (!is_game) {
             count_ext(ec, nec, e->d_name);
@@ -240,7 +268,7 @@ static void scan_dir(Library *lib, const char *dirpath, const char *label, int d
         snprintf(g->file, sizeof g->file, "%s", e->d_name);
         snprintf(g->source, sizeof g->source, "%s", label);
         g->file_size = path_size(full);
-        g->fmt = ends_with_ci(e->d_name, ".cso") ? DISC_CSO : DISC_ISO;
+        g->fmt = (DiscFormat)fmt;
         load_meta(g, tile_w, tile_h);
         if (!g->image_size) g->image_size = g->file_size;
         lib->total_bytes += g->file_size;
@@ -334,9 +362,19 @@ void library_free(Library *lib) {
 
 Image library_load_cover(const Game *g, int w, int h) {
     Image out = { 0 };
+    size_t len;
+    if (g->fmt == DISC_PBP || g->fmt == DISC_CHD) {
+        uint8_t *png = g->fmt == DISC_PBP ? pbp_read_entry(g->path, PBP_PIC1, &len, 2 * 1024 * 1024) : NULL;
+        if (png) {
+            Image src = image_decode(png, (int)len);
+            free(png);
+            if (src.px) { out = image_scale_cover(&src, w, h); image_free(&src); }
+        }
+        if (!out.px && g->icon.px) out = image_scale_cover(&g->icon, w, h);
+        return out;
+    }
     Disc *d = disc_open(g->path);
     if (!d) return out;
-    size_t len;
     uint8_t *png = disc_read_file(d, "PSP_GAME/PIC1.PNG", &len, 2 * 1024 * 1024);
     if (png) {
         Image src = image_decode(png, (int)len);

@@ -1,6 +1,7 @@
 // browser.c - lists drives and folders for the Explorar window.
 #include "browser.h"
 #include "library.h"
+#include "disc.h"
 
 #include <ctype.h>
 #include <dirent.h>
@@ -31,14 +32,6 @@ static const Root kRoots[] = {
     { NULL, NULL, NULL },
 };
 #endif
-
-static int ends_ci(const char *s, const char *ext) {
-    size_t n = strlen(s), e = strlen(ext);
-    if (n < e) return 0;
-    for (size_t i = 0; i < e; i++)
-        if (tolower((unsigned char)s[n - e + i]) != ext[i]) return 0;
-    return 1;
-}
 
 void browser_display_path(const char *path, char *out, int out_len) {
     int best = -1;
@@ -133,7 +126,7 @@ int browser_enter(Browser *b, const char *path_in) {
             snprintf(en->note, sizeof en->note, "Carpeta");
         } else {
             en->size = path_size(en->full);
-            en->kind = (ends_ci(e->d_name, ".iso") || ends_ci(e->d_name, ".cso")) ? ENTRY_GAME : ENTRY_FILE;
+            en->kind = disc_format_from_name(e->d_name) >= 0 ? ENTRY_GAME : ENTRY_FILE;
             format_size(en->size, en->note, sizeof en->note);
         }
         b->count++;

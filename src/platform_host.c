@@ -52,6 +52,22 @@ static const Step kBrowserScript[] = {
     { 0, 0, NULL },
 };
 
+// VAULT_SCRIPT=eboot: the EBOOT filter, a PSP EBOOT's details, then a PS1 EBOOT (not playable yet).
+static const Step kEbootScript[] = {
+    { 30, BTN_R1, NULL }, { 32, BTN_R1, NULL }, { 34, BTN_R1, NULL },
+    { 70, 0, "13_filtro_eboot" },
+    { 72, BTN_TRIANGLE, NULL },
+    { 76, 0, "14_detalles_eboot" },
+    { 78, BTN_CIRCLE, NULL },
+    { 80, BTN_RIGHT, NULL },
+    { 100, BTN_CROSS, NULL },
+    { 104, 0, "15_ps1_aviso" },
+    { 106, BTN_CIRCLE, NULL },
+    { 108, BTN_R1, NULL },
+    { 140, 0, "16_filtro_chd" },
+    { 0, 0, NULL },
+};
+
 const char *plat_app_dir(void) {
     const char *d = getenv("VAULT_APP");
     return d ? d : ".";
@@ -88,7 +104,8 @@ uint32_t plat_buttons(void) {
     g_frame++;
     uint32_t b = 0;
     const char *sc = getenv("VAULT_SCRIPT");
-    const Step *script = (sc && strcmp(sc, "explorar") == 0) ? kBrowserScript : kScript;
+    const Step *script = (sc && strcmp(sc, "explorar") == 0) ? kBrowserScript
+                       : (sc && strcmp(sc, "eboot") == 0) ? kEbootScript : kScript;
     for (const Step *s = script; s->frame; s++) {
         if (s->frame != g_frame) continue;
         b |= s->buttons;

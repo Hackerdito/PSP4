@@ -1,6 +1,6 @@
 # SAMPSP4: juegos de PSP en tu PS4
 
-VAULT es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de PSP en formato `.iso` y `.cso` y los muestra en una biblioteca moderna: portada, título real, ID de disco, tamaño y nivel de compresión.
+VAULT es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de PSP en formato `.iso`, `.cso`, `EBOOT.PBP` y `.chd` y los muestra en una biblioteca moderna: portada, título real, ID de disco, tamaño y nivel de compresión.
 
 > **Estado: v1.0, con motor integrado.** VAULT trae su propio emulador de PSP dentro del mismo PKG: PPSSPP con el port a PS4 de [M33](https://github.com/iHaiDeeZ/M33). No hace falta instalar otra app. Detalles en [`engine/`](engine/README.md).
 
@@ -19,14 +19,14 @@ VAULT es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de PSP 
 | Disco interno | `/data/vault/PSP/GAME/` | FTP de GoldHEN, puerto 2121 |
 | USB | **cualquier carpeta**, en cualquier puerto (`usb0` a `usb7`) | VAULT revisa la memoria completa, hasta 3 carpetas de profundidad |
 
-Formatos: `.iso` y `.cso` (CISO v1). VAULT saca de cada disco el título, el ID, `ICON0.PNG` (miniatura) y `PIC1.PNG` (portada grande).
+Formatos: `.iso`, `.cso` (CISO v1), `EBOOT.PBP` (juegos de PSN y homebrew, cada uno en su carpeta, p. ej. `PSP/GAME/NPUH10000/EBOOT.PBP`) y `.chd`. De ISO, CSO y EBOOT saca el título, el ID, `ICON0.PNG` (miniatura) y `PIC1.PNG` (portada grande); los `.chd` se muestran por nombre de archivo. Los EBOOT de PS1 (PSone Classics) se detectan y avisan que todavía no se pueden abrir. Las USB se revisan hasta 4 carpetas de profundidad.
 
 ## Controles
 
 | Botón | Acción |
 | --- | --- |
 | ← → (cruceta o stick) | Moverse por la biblioteca |
-| L1 / R1 | Filtro: Todos · ISO · CSO |
+| L1 / R1 | Filtro: Todos · ISO · CSO · EBOOT · CHD |
 | ✕ | Jugar |
 | △ | Detalles del archivo |
 | □ | **Explorar**: navega USB y disco interno |
@@ -40,7 +40,7 @@ Muestra las unidades conectadas (USB0 a USB7, juegos de M33, disco interno y tod
 | --- | --- |
 | ↑ ↓ | Moverse |
 | L1 / R1 | Página arriba o abajo |
-| ✕ | Abrir una carpeta, o jugar un `.iso` / `.cso` |
+| ✕ | Abrir una carpeta, o jugar un `.iso` / `.cso` / `EBOOT.PBP` / `.chd` |
 | △ | Agregar la carpeta actual a tu biblioteca (se guarda en `/data/vault/folders.txt`) |
 | ○ | Subir una carpeta; en la lista de unidades, cerrar |
 
@@ -94,7 +94,7 @@ src/
   main.c            ciclo principal
   ui.c              interfaz (héroe, carrusel, filtros, ventanas)
   gfx.c             render por software: formas con antialias, imágenes y texto (stb)
-  disc.c            lector de ISO/CSO + ISO9660 + PARAM.SFO
+  disc.c            lector de ISO/CSO/EBOOT.PBP + ISO9660 + PARAM.SFO
   library.c         escaneo de carpetas y metadatos
   platform_ps4.c    video, control, reloj y salida del sandbox con GoldHEN
   platform_host.c   versión de prueba para PC (capturas PNG)

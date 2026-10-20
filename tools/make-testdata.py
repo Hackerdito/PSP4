@@ -115,6 +115,17 @@ def iso_to_cso(src, dst, block=2048):
         f.write(b''.join(blocks))
 
 
+def make_pbp(path, sfo, icon=b'', pic1=b'', psar=b''):
+    """EBOOT.PBP: header + 8 entries (SFO, ICON0, ICON1, PIC0, PIC1, SND0, DATA.PSP, DATA.PSAR)."""
+    parts = [sfo, icon, b'', b'', pic1, b'', b'~PSP' + b'\0' * 60, psar]
+    offs, pos = [], 40
+    for p in parts:
+        offs.append(pos)
+        pos += len(p)
+    with open(path, 'wb') as f:
+        f.write(b'\0PBP' + struct.pack('<I', 0x10000) + struct.pack('<8I', *offs) + b''.join(parts))
+
+
 def main():
     os.makedirs(INTERNAL, exist_ok=True)
     os.makedirs(USB, exist_ok=True)
@@ -127,6 +138,18 @@ def main():
             iso_to_cso(tmp, target)
             os.remove(tmp)
         print(target, os.path.getsize(target))
+    # EBOOT.PBP: a PSN PSP game in its own folder, and a PS1 classic.
+    d = os.path.join(INTERNAL, 'NPUH10000'); os.makedirs(d, exist_ok=True)
+    make_pbp(os.path.join(d, 'EBOOT.PBP'),
+             make_sfo([('TITLE', 'Neon Drift Mini'), ('DISC_ID', 'NPUH10000'), ('CATEGORY', 'EG')]),
+             png(art((144, 80), (180, 120, 255), (40, 20, 90), 7)), png(art((480, 272), (120, 60, 220), (10, 10, 40), 8)))
+    d = os.path.join(INTERNAL, 'SLUS00594'); os.makedirs(d, exist_ok=True)
+    make_pbp(os.path.join(d, 'EBOOT.PBP'),
+             make_sfo([('TITLE', 'Retro Racer PS1'), ('DISC_ID', 'SLUS00594'), ('CATEGORY', 'ME')]),
+             png(art((80, 80), (255, 200, 80), (90, 40, 10), 9)), psar=b'PSISOIMG0000' + b'\0' * 64)
+    open(os.path.join(USB, 'PARAM.PBP'), 'wb').write(b'\0PBP' + b'\0' * 36)   # update data: not a game
+    with open(os.path.join(INTERNAL, 'Shadow Circuit (USA).chd'), 'wb') as f:
+        f.write(b'MComprHD' + b'\0' * 4096)
 
 
 if __name__ == '__main__':

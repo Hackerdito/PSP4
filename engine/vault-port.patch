@@ -1,5 +1,5 @@
 diff --git a/port/ps4_crashlog.cpp b/port/ps4_crashlog.cpp
-index 33c75ba..6115532 100644
+index 33c75ba..ca96998 100644
 --- a/port/ps4_crashlog.cpp
 +++ b/port/ps4_crashlog.cpp
 @@ -2,9 +2,9 @@
@@ -14,7 +14,7 @@ index 33c75ba..6115532 100644
  // virtual addresses: symbolize with `llvm-symbolizer --obj=<elf> 0x...`.
  //
  // Handlers installed later (Dolphin's fastmem handler) chain to this one for faults they don't
-@@ -86,8 +86,9 @@ bool readable(const void* address) {
+@@ -86,8 +86,11 @@ bool readable(const void* address) {
  // Opened on first use: the heap may log before this file's constructor runs.
  int traceFd() {
      if (g_traceFd < 0) {
@@ -22,11 +22,13 @@ index 33c75ba..6115532 100644
 -        g_traceFd = open("/data/March33/boot-trace.log", O_WRONLY | O_CREAT | O_TRUNC, 0666);
 +        mkdir("/data/vault", 0777);
 +        mkdir("/data/vault/psp", 0777);
++        // Keep the previous run's trace (a restart back to SAMPSP4 starts a new process).
++        rename("/data/vault/psp/boot-trace.log", "/data/vault/psp/boot-trace.prev.log");
 +        g_traceFd = open("/data/vault/psp/boot-trace.log", O_WRONLY | O_CREAT | O_TRUNC, 0666);
      }
      return g_traceFd;
  }
-@@ -137,7 +138,7 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
+@@ -137,7 +140,7 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
      if (s_depth++ > 0)
          _exit(128 + sig);
  
@@ -35,7 +37,7 @@ index 33c75ba..6115532 100644
      if (fd >= 0) {
          const auto* regs = reinterpret_cast<const uint64_t*>(static_cast<char*>(context) + kMcontextOffset);
          const uint64_t rip = regs[kRipIndex];
-@@ -180,7 +181,7 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
+@@ -180,7 +183,7 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
          _exit(126);
      }, nullptr);
      // Where every other thread was (stacks, and the lock each one waits on), after the crash.
@@ -44,7 +46,7 @@ index 33c75ba..6115532 100644
      // The emulator's view of the crash (M33: the PSP CPU registers, into crash.log).
      if (ps4_crash_guest_info) {
          ps4_crash_guest_info();
-@@ -210,7 +211,7 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
+@@ -210,7 +213,7 @@ void crashHandler(int sig, siginfo_t* info, void* context) {
          }
          snprintf(message, sizeof(message), "uncaught exception %s: %s", name ? name : type->name(), what);
      }
@@ -53,7 +55,7 @@ index 33c75ba..6115532 100644
      if (fd >= 0) {
          writeFormat(fd, "\n=== %s\n", message);
          close(fd);
-@@ -258,7 +259,7 @@ extern "C" __attribute__((noinline)) void ps4_trace_callers(const char* what) {
+@@ -258,7 +261,7 @@ extern "C" __attribute__((noinline)) void ps4_trace_callers(const char* what) {
      ps4_boot_trace(line);
  }
  
