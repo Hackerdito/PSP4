@@ -21,11 +21,27 @@ typedef struct {
     Image icon;            // original ICON0 (may be empty)
 } Game;
 
+// What the scan saw in one folder, shown on screen when the library is empty.
+typedef struct {
+    char path[256];        // folder as configured
+    char used[256];        // folder actually opened (case-insensitive match), "" if none
+    int exists;
+    int err;               // errno from opendir when it doesn't
+    int files, games, subdirs;
+    char other[96];        // e.g. ".zip x2, .rar x1"
+    char sample[96];       // first non-game file name, to show
+} DirReport;
+
+#define MAX_REPORTS 8
+
 typedef struct {
     Game games[MAX_GAMES];
     int count;
     uint64_t total_bytes;
     int folders_found;
+    DirReport reports[MAX_REPORTS];
+    int report_count;
+    int data_readable;     // /data could be listed (sandbox escaped)
 } Library;
 
 // The folders VAULT looks in, NULL terminated. The first entry is created if missing.

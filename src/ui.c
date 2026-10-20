@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v0.2"
+#define VAULT_VERSION "v0.3"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
@@ -298,25 +298,55 @@ static void draw_cover(App *a, Canvas *c, Game *g) {
     draw_text(c, FONT_MONO, 15, COVER_X + 36, COVER_Y + 42, tag, C_SOFT, 1, 0);
 }
 
+// When nothing was found: what the scan saw, folder by folder, so the reason is on screen.
+static void draw_empty_report(App *a, Canvas *c, float x, float y) {
+    Library *L = &a->lib;
+    if (!L->data_readable) {
+        draw_text(c, FONT_BODY, 26, x, y, "VAULT no pudo leer /data: sigue dentro del sandbox.", 0xFF8A80, 1, 0);
+        draw_text(c, FONT_BODY, 22, x, y + 36, "Activa GoldHEN antes de abrir VAULT y vuelve a entrar.", C_SOFT, 1, 0);
+        y += 84;
+    } else {
+        draw_text(c, FONT_BODY, 24, x, y, "Esto encontr\xC3\xA9 en cada carpeta (.iso y .cso, hasta 2 subcarpetas):", C_SOFT, 1, 0);
+        y += 46;
+    }
+    for (int i = 0; i < L->report_count && i < 6; i++) {
+        const DirReport *r = &L->reports[i];
+        char status[200];
+        uint32_t col = C_MUTED;
+        if (!r->exists) snprintf(status, sizeof status, "no existe");
+        else if (r->games) { snprintf(status, sizeof status, "%d juego%s", r->games, r->games == 1 ? "" : "s"); col = C_ACCENT; }
+        else if (!r->files && !r->subdirs) snprintf(status, sizeof status, "vac\xC3\xAD" "a");
+        else if (!r->files) snprintf(status, sizeof status, "%d carpeta%s sin .iso/.cso", r->subdirs, r->subdirs == 1 ? "" : "s");
+        else {
+            int packed = strstr(r->other, ".zip") || strstr(r->other, ".rar") || strstr(r->other, ".7z");
+            snprintf(status, sizeof status, "%s%s", r->other, packed ? "  \xE2\x80\x94 descompr\xC3\xAD" "melos" : "");
+            col = 0xFFB86B;
+        }
+        char path[160];
+        if (r->exists && strcmp(r->used, r->path) != 0) snprintf(path, sizeof path, "%s", r->used);
+        else snprintf(path, sizeof path, "%s", r->path);
+        char pe[160];
+        text_ellipsize(FONT_MONO, 19, path, 470, pe, sizeof pe, 0);
+        draw_text(c, FONT_MONO, 19, x, y, pe, r->exists ? C_TEXT : C_DIM, 1, 0);
+        char se[200];
+        text_ellipsize(FONT_BODY, 20, status, 470, se, sizeof se, 0);
+        draw_text(c, FONT_BODY, 20, x + 500, y, se, col, 1, 0);
+        y += 34;
+    }
+    draw_text(c, FONT_MONO, 16, x, y + 12, "Registro completo: /data/vault/scan.log", C_DIM, 1, 0);
+}
+
 static void draw_hero(App *a, Canvas *c) {
     Game *g = selected(a);
     float x = PAD_X, y = 236;
     if (!g) {
         draw_text(c, FONT_MONO, 18, x, y, a->lib.count ? "SIN RESULTADOS EN ESTE FILTRO" : "BIENVENIDO A VAULT", C_ACCENT, 1, 3.6f);
-        draw_text(c, FONT_DISPLAY, 92, x - 4, y + 104, a->lib.count ? "Nada por aqu\xC3\xAD" : "Tu b\xC3\xB3veda est\xC3\xA1 vac\xC3\xAD" "a", C_TEXT, 1, -2.5f);
-        const char *l1 = "Copia tus juegos de PSP (.iso o .cso) a una de estas carpetas:";
-        draw_text(c, FONT_BODY, 26, x, y + 170, l1, C_SOFT, 1, 0);
-        draw_text(c, FONT_MONO, 22, x, y + 214, "/data/vault/PSP/GAME", C_ACCENT, 1, 0);
-        draw_text(c, FONT_BODY, 22, x + 330, y + 214, "disco interno, v\xC3\xAD" "a FTP", C_MUTED, 1, 0);
-        draw_text(c, FONT_MONO, 22, x, y + 252, "USB:/vault/PSP/GAME", C_ACCENT, 1, 0);
-        draw_text(c, FONT_BODY, 22, x + 330, y + 252, "memoria USB en exFAT", C_MUTED, 1, 0);
-        float by = y + 300;
-        fill_rrect(c, x, by, 300, 72, 16, C_ACCENT, 1);
-        float cx = x + 40, cy = by + 36;
-        stroke_circle(c, cx, cy, 17, 2.4f, C_INK, 1);
-        draw_line(c, cx - 8, cy - 8, cx + 8, cy + 8, 2.6f, C_INK, 1);
-        draw_line(c, cx + 8, cy - 8, cx - 8, cy + 8, 2.6f, C_INK, 1);
-        draw_text(c, FONT_DISPLAY, 26, x + 72, cy + 9, "Escanear", C_INK, 1, 0);
+        draw_text(c, FONT_DISPLAY, 76, x - 4, y + 88, a->lib.count ? "Nada por aqu\xC3\xAD" : "Tu b\xC3\xB3veda est\xC3\xA1 vac\xC3\xAD" "a", C_TEXT, 1, -2);
+        if (a->lib.count) {
+            draw_text(c, FONT_BODY, 26, x, y + 170, "Cambia el filtro con L1 / R1.", C_SOFT, 1, 0);
+        } else {
+            draw_empty_report(a, c, x, y + 146);
+        }
         fallback_art(c, COVER_X, COVER_Y, COVER_W, COVER_H, 28, 0x1B2230, 0x24304A);
         draw_text(c, FONT_DISPLAY, 44, COVER_X + 32, COVER_Y + COVER_H - 32, "PSP \xC2\xB7 ISO \xC2\xB7 CSO", C_TEXT, 0.9f, -0.5f);
         return;
