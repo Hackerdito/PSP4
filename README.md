@@ -58,7 +58,7 @@ Al presionar ✕, la pantalla de VAULT se cierra y el motor arranca el juego en 
 | Clic en el touchpad | SELECT |
 | L2 (mantener) | Rebobinar |
 | R2 | Avance rápido |
-| **L3 + R3** | Menú rápido: guardar y cargar estado, trucos, resolución, **Salir al inicio** |
+| **L3 + R3** | Menú rápido: guardar y cargar estado, trucos, resolución, **Volver a SAMPSP4** |
 
 Tus partidas quedan en `/data/vault/psp/PSP/SAVEDATA`. Si algo falla, `/data/vault/psp/boot-trace.log` y `crash.log` dicen hasta dónde llegó.
 

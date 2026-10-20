@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v1.0"
+#define VAULT_VERSION "v1.1"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
