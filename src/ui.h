@@ -4,6 +4,7 @@
 #include "library.h"
 #include "browser.h"
 #include "netpc.h"
+#include <stdint.h>
 
 typedef enum { MODAL_NONE = 0, MODAL_PLAY, MODAL_DETAILS, MODAL_NO_ENGINE, MODAL_LAUNCH_ERROR, MODAL_PS1 } Modal;
 
@@ -47,6 +48,17 @@ typedef struct {
     int frame;
 } PcView;
 
+// "Subir desde el celular" (R2): el servidor de upload.c y su pantalla.
+typedef struct {
+    int open;
+    int frame;
+    int added_at_open;           // upload_status()->games_added al abrir: si cambia, se reescanea
+    uint64_t last_sig;
+    char qr_for[64];             // URL con la que se armó el QR
+    int qr_ok;
+    uint8_t qr[256];             // qrcodegen_BUFFER_LEN_FOR_VERSION(6) = 211
+} UploadView;
+
 typedef struct {
     Library lib;
     int view[MAX_GAMES];     // indices into lib.games after filtering
@@ -65,6 +77,7 @@ typedef struct {
     char launch_path[512];
     Browser browser;         // the Explorar window
     PcView pc;               // the "Mi PC" window
+    UploadView upload;       // "Subir desde el celular"
     int launch_error;
 } App;
 

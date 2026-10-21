@@ -140,6 +140,17 @@ static const Step kIntroScript[] = {
 
 // VAULT_SCRIPT=mipc (a saved build/host/pc.txt pointing at a test SMB share): Mi PC from L2,
 // its shared folders, a folder, a PS1 game copied to the PS4, then the settings and keyboard.
+// "Subir desde el celular": tests/upload_shots.py sube un juego por la red mientras corre.
+static const Step kUploadScript[] = {
+    { 20, BTN_R2, NULL },
+    { 60, 0, "34_celular_esperando" },
+    { 1300, 0, "35_celular_recibiendo" },
+    { 2300, 0, "36_celular_listo" },
+    { 2310, BTN_CIRCLE, NULL },
+    { 2400, 0, "37_celular_biblioteca" },
+    { 0, 0, NULL },
+};
+
 static const Step kPcScript[] = {
     { 20, BTN_L2, NULL },
     { 120, 0, "28_mipc_carpetas" },
@@ -205,7 +216,8 @@ uint32_t plat_buttons(void) {
                        : (sc && strcmp(sc, "secciones") == 0) ? kSectionsScript
                        : (sc && strcmp(sc, "ps1") == 0) ? kPs1Script
                        : (sc && strcmp(sc, "intro") == 0) ? kIntroScript
-                       : (sc && strcmp(sc, "mipc") == 0) ? kPcScript : kScript;
+                       : (sc && strcmp(sc, "mipc") == 0) ? kPcScript
+                       : (sc && strcmp(sc, "celular") == 0) ? kUploadScript : kScript;
     for (const Step *s = script; s->frame; s++) {
         if (s->frame != g_frame) continue;
         b |= s->buttons;
@@ -236,7 +248,8 @@ int plat_host_done(void) {
     if (once && g_frame >= 30) return 1;
     int last = 170;
     const char *sc = getenv("VAULT_SCRIPT");
-    const Step *script = (sc && strcmp(sc, "ps1") == 0) ? kPs1Script : (sc && strcmp(sc, "mipc") == 0) ? kPcScript : NULL;
+    const Step *script = (sc && strcmp(sc, "ps1") == 0) ? kPs1Script : (sc && strcmp(sc, "mipc") == 0) ? kPcScript
+                       : (sc && strcmp(sc, "celular") == 0) ? kUploadScript : NULL;
     if (script) for (const Step *st = script; st->frame; st++) if (st->frame > last) last = st->frame;
     return g_frame > last + 10;
 }

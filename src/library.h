@@ -64,6 +64,10 @@ extern const GameDir kGameDirs[];
 void library_scan(Library *lib, int tile_w, int tile_h);
 void library_free(Library *lib);
 
+// Datos de un solo juego (título, ID, sección, tamaño) sin cargar imágenes. Es lo mismo que
+// muestra la biblioteca; lo usa la web de "Subir desde el celular".
+void library_probe(const char *path, Game *g);
+
 // Loads the big background art (PIC1.PNG, else ICON0) for one game. Caller frees.
 Image library_load_cover(const Game *g, int w, int h);
 

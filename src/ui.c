@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define VAULT_VERSION "v1.8"
+#define VAULT_VERSION "v1.9"
 
 // Palette (matches the VAULT mockup)
 #define C_BG      0x07080C
@@ -51,6 +51,8 @@ static int section_count(App *a, int s) {
 
 static int pc_update(App *a, uint32_t pressed);
 static void pc_open(App *a);
+static int up_update(App *a, uint32_t pressed);
+static void up_open(App *a);
 
 static Game *selected(App *a) {
     if (a->view_count == 0) return NULL;
@@ -261,6 +263,7 @@ int app_update(App *a, uint32_t pressed, uint32_t held) {
         if (pressed & (BTN_CIRCLE | BTN_CROSS)) { a->modal = MODAL_NONE; dirty = 1; }
         return dirty;
     }
+    if (a->upload.open) return up_update(a, pressed);
     if (a->pc.open) return pc_update(a, pressed);
     if (a->browser.open) return browser_update(a, pressed);
     int prev_sel = a->sel;
@@ -274,6 +277,7 @@ int app_update(App *a, uint32_t pressed, uint32_t held) {
     }
     if (pressed & BTN_SQUARE) { browser_open(&a->browser); dirty = 1; }
     if (pressed & BTN_L2) { pc_open(a); dirty = 1; }
+    if (pressed & BTN_R2) { up_open(a); dirty = 1; }
     if (pressed & BTN_OPTIONS) { a->scanning = 1; dirty = 1; }
     if ((pressed & BTN_CROSS) && a->view_count) { request_launch(a, a->lib.games[a->view[a->sel]].path); dirty = 1; }
     if ((pressed & BTN_TRIANGLE) && a->view_count) { a->modal = MODAL_DETAILS; dirty = 1; }
@@ -531,12 +535,14 @@ static void draw_footer(App *a, Canvas *c) {
     fill_rect(c, 0, (int)y, SCREEN_W, 1, 0xFFFFFF, 0.08f);
     float cy = y + 40;
     float lw = draw_text(c, FONT_MONO, 18, PAD_X, cy + 6, "SAMPSP4 " VAULT_VERSION " \xC2\xB7 PSP + PS1", C_MUTED, 1, 0);
-    if (!a->browser.open && !a->pc.open && a->modal == MODAL_NONE) {
+    if (!a->browser.open && !a->pc.open && !a->upload.open && a->modal == MODAL_NONE) {
         float kx = PAD_X + lw + 40;
         kx += key_chip(c, kx, cy, "OPTIONS") + 10;
         kx += draw_text(c, FONT_BODY, 20, kx, cy + 7, "Escanear", C_MUTED, 1, 0) + 32;
         kx += key_chip(c, kx, cy, "L2") + 10;
-        draw_text(c, FONT_BODY, 20, kx, cy + 7, "Mi PC", C_MUTED, 1, 0);
+        kx += draw_text(c, FONT_BODY, 20, kx, cy + 7, "Mi PC", C_MUTED, 1, 0) + 32;
+        kx += key_chip(c, kx, cy, "R2") + 10;
+        draw_text(c, FONT_BODY, 20, kx, cy + 7, "Celular", C_MUTED, 1, 0);
     }
 
     struct { Glyph g; const char *t; } hints[4] = {
@@ -572,6 +578,7 @@ static void draw_footer(App *a, Canvas *c) {
         case PCV_RESULT: hints[0].g = G_CROSS; hints[0].t = "Seguir"; nh = 1; break;
         }
     }
+    if (a->upload.open) { hints[0].g = G_CIRCLE; hints[0].t = "Cerrar"; nh = 1; }
     if (a->modal != MODAL_NONE) { hints[0].g = G_CIRCLE; hints[0].t = "Cerrar"; nh = 1; }
     float x = SCREEN_W - PAD_X;
     for (int i = nh - 1; i >= 0; i--) {
@@ -766,6 +773,7 @@ static void draw_browser(App *a, Canvas *c) {
 }
 
 #include "ui_pc.inc.c"
+#include "ui_upload.inc.c"
 
 void app_draw(App *a, Canvas *c, int hh, int mm) {
     Game *g = selected(a);
@@ -782,6 +790,7 @@ void app_draw(App *a, Canvas *c, int hh, int mm) {
     draw_footer(a, c);
     if (a->browser.open) { draw_browser(a, c); draw_footer(a, c); }
     if (a->pc.open) { draw_pc(a, c); draw_footer(a, c); }
+    if (a->upload.open) { draw_upload(a, c); draw_footer(a, c); }
     if (a->modal != MODAL_NONE) { draw_modal(a, c); draw_footer(a, c); }
 }
 

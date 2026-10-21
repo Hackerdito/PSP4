@@ -1,6 +1,7 @@
 // library.c - folder scan + metadata extraction.
 #include "library.h"
 #include "browser.h"
+#include "upload.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -16,6 +17,7 @@
 // USB drives are searched whole (4 folders deep, enough for PSP/GAME/<id>/EBOOT.PBP), so games can sit anywhere on them.
 #ifdef VAULT_HOST
 const GameDir kGameDirs[] = {
+    { "testdata/data/vault/games", "Interno", 2, 0 },
     { "testdata/data/March33/games", "Interno", 2, 0 },
     { "testdata/data/vault/PSP/GAME", "Interno", 2, 0 },
     { "testdata/usb0", "USB0", 4, 1 },
@@ -125,6 +127,7 @@ static void apply_sfo(Game *g, uint8_t *sfo, size_t len) {
 }
 
 static void apply_icon(Game *g, uint8_t *png, size_t len, int tile_w, int tile_h) {
+    if (tile_w <= 0) return;   // library_probe: solo datos, sin decodificar imágenes
     g->icon = image_decode(png, (int)len);
     if (g->icon.px) {
         g->tile = image_scale_cover(&g->icon, tile_w, tile_h);
@@ -132,7 +135,7 @@ static void apply_icon(Game *g, uint8_t *png, size_t len, int tile_w, int tile_h
     }
 }
 
-static void load_meta(Game *g, int tile_w, int tile_h) {
+static void load_meta_inner(Game *g, int tile_w, int tile_h) {
     uint32_t h = hash_str(g->file);
     float hue = (h % 360) / 360.0f;
     g->c1 = hsv(hue, 0.65f, 0.95f);
@@ -180,6 +183,24 @@ static void load_meta(Game *g, int tile_w, int tile_h) {
         g->is_ps1 = 1;   // no PSP_GAME, but SYSTEM.CNF (or a raw CD image): PlayStation 1
     }
     disc_close(d);
+}
+
+static void load_meta(Game *g, int tile_w, int tile_h) {
+    load_meta_inner(g, tile_w, tile_h);
+    // Nombre que el usuario le puso desde la web de "Subir desde el celular".
+    upload_title_override(g->path, g->title, sizeof g->title);
+}
+
+void library_probe(const char *path, Game *g) {
+    memset(g, 0, sizeof *g);
+    snprintf(g->path, sizeof g->path, "%s", path);
+    const char *slash = strrchr(path, '/');
+    snprintf(g->file, sizeof g->file, "%s", slash ? slash + 1 : path);
+    g->file_size = path_size(path);
+    g->fmt = (DiscFormat)disc_format_from_name(g->file);
+    load_meta(g, 0, 0);
+    g->sys = g->is_ps1 ? SYS_PS1 : g->fmt == DISC_PBP ? SYS_EBOOT : SYS_PSP;
+    if (!g->image_size) g->image_size = g->file_size;
 }
 
 static int cmp_games(const void *a, const void *b) {
