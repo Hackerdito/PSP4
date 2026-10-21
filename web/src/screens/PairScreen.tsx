@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { PinInput } from '../components/PinInput';
 import { apiClient, mockAllowed } from '../api/client';
-import { Tv, ShieldCheck, ArrowRight, AlertCircle, Loader2, Sparkles } from 'lucide-react';
+import { ShieldCheck, ArrowRight, AlertCircle, Loader2, Sparkles } from 'lucide-react';
 
 interface PairScreenProps {
   onPaired: () => void;
@@ -59,10 +59,15 @@ export const PairScreen: React.FC<PairScreenProps> = ({ onPaired, onOpenMockCont
       <div className="w-full max-w-md flex flex-col items-center text-center my-auto">
         {/* Logo and PS4 Graphic */}
         <div className="relative mb-6">
-          <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-3xl bg-gradient-to-br from-[#16161a] to-[#0d0d0f] border border-[#27272a] shadow-2xl flex items-center justify-center text-white">
-            <Tv className="w-10 h-10 sm:w-12 sm:h-12 text-[#0A84FF]" />
-          </div>
-          <div className="absolute -bottom-2 -right-2 w-8 h-8 rounded-full bg-[#0A84FF] border-2 border-black flex items-center justify-center text-white">
+          <img
+            src="/logo.png"
+            alt="SAMPSP4"
+            width={144}
+            height={144}
+            className="w-28 h-28 sm:w-36 sm:h-36 drop-shadow-2xl select-none"
+            draggable={false}
+          />
+          <div className="absolute -top-2 -right-2 w-8 h-8 rounded-full bg-[#0A84FF] border-2 border-black flex items-center justify-center text-white">
             <ShieldCheck className="w-4 h-4" />
           </div>
         </div>
