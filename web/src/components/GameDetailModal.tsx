@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Game } from '../types';
 import { formatBytes, formatDate } from '../utils/format';
 import { apiClient } from '../api/client';
+import { useCover } from '../hooks/useCover';
 import { X, Edit2, Trash2, Check, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface GameDetailModalProps {
@@ -17,6 +18,7 @@ export const GameDetailModal: React.FC<GameDetailModalProps> = ({
   onGameUpdated,
   onGameDeleted,
 }) => {
+  const cover = useCover(game?.id);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleInput, setTitleInput] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -89,12 +91,11 @@ export const GameDetailModal: React.FC<GameDetailModalProps> = ({
         {/* Header Cover + Basic Info */}
         <div className="flex gap-4 items-start">
           <div className="w-24 h-32 shrink-0 rounded-xl overflow-hidden bg-neutral-900 border border-neutral-800 shadow-md">
-            <img
-              src={apiClient.getCoverUrl(game.id)}
-              alt={game.title}
-              className="w-full h-full object-cover"
-              referrerPolicy="no-referrer"
-            />
+            {cover ? (
+              <img src={cover} alt={game.title} className="w-full h-full object-contain" />
+            ) : (
+              <div className="w-full h-full bg-gradient-to-b from-neutral-800 to-neutral-950" />
+            )}
           </div>
 
           <div className="flex-1 min-w-0 pr-8">

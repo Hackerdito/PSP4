@@ -1,5 +1,5 @@
 import React from 'react';
-import { Upload, Library, Sliders, LogOut, Tv } from 'lucide-react';
+import { Upload, Library, Sliders, LogOut } from 'lucide-react';
 import { apiClient, mockAllowed } from '../api/client';
 
 interface HeaderProps {
@@ -23,16 +23,14 @@ export const Header: React.FC<HeaderProps> = ({
     <header className="sticky top-0 z-30 w-full bg-black/90 backdrop-blur-md border-b border-[#242428] px-4 sm:px-8 py-3.5 flex items-center justify-between gap-4">
       {/* Zone 1: Brand wordmark */}
       <div className="flex items-center gap-3 shrink-0">
-        <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-neutral-800 to-neutral-950 border border-neutral-700/80 flex items-center justify-center text-white shadow-sm">
-          <Tv className="w-5 h-5 text-[#0A84FF]" />
-        </div>
+        <img src="/logo.png" alt="SAMPSP4" width={40} height={40} className="w-10 h-10 shrink-0 select-none" draggable={false} />
         <div className="flex flex-col">
           <div className="flex items-center gap-2">
             <span className="text-base font-bold tracking-tight text-white whitespace-nowrap">
               SAMPSP4
             </span>
             <span className="text-[10px] font-mono font-medium text-neutral-400 bg-neutral-900 border border-neutral-800 px-1.5 py-0.5 rounded">
-              v1.1
+              v1.9
             </span>
           </div>
           <span className="text-[10px] text-neutral-500 whitespace-nowrap hidden sm:inline">

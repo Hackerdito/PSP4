@@ -165,6 +165,45 @@ export class ApiClient {
     return `${this.baseUrl}/api/games/${encodeURIComponent(id)}/cover`;
   }
 
+  // Portadas: fetch con el token (un <img> no puede mandarlo), guardadas como blob: URL.
+  // Hasta 4 a la vez, para no saturar a la PS4 con una biblioteca grande.
+  private coverCache = new Map<string, Promise<string | null>>();
+  private coverActive = 0;
+  private coverWaiting: Array<() => void> = [];
+
+  public loadCover(id: string): Promise<string | null> {
+    if (this.isMock) return Promise.resolve(this.getCoverUrl(id));
+    let p = this.coverCache.get(id);
+    if (!p) {
+      p = this.withCoverSlot(async () => {
+        try {
+          const res = await fetch(this.getCoverUrl(id), { headers: this.getHeaders() });
+          if (!res.ok) return null;
+          return URL.createObjectURL(await res.blob());
+        } catch {
+          return null;
+        }
+      });
+      this.coverCache.set(id, p);
+      // Un fallo de red no se queda guardado: se reintenta la próxima vez.
+      p.then((u) => {
+        if (u === null) this.coverCache.delete(id);
+      });
+    }
+    return p;
+  }
+
+  private async withCoverSlot<T>(job: () => Promise<T>): Promise<T> {
+    if (this.coverActive >= 4) await new Promise<void>((go) => this.coverWaiting.push(go));
+    this.coverActive++;
+    try {
+      return await job();
+    } finally {
+      this.coverActive--;
+      this.coverWaiting.shift()?.();
+    }
+  }
+
   // PATCH /api/games/:id { title }
   public async updateGame(id: string, title: string): Promise<Game> {
     if (this.isMock) {

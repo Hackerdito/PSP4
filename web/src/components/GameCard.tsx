@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { Game } from '../types';
 import { formatBytes } from '../utils/format';
-import { apiClient } from '../api/client';
+import { useCover } from '../hooks/useCover';
 import { Gamepad2, Disc } from 'lucide-react';
 
 interface GameCardProps {
@@ -10,8 +10,7 @@ interface GameCardProps {
 }
 
 export const GameCard: React.FC<GameCardProps> = ({ game, onClick }) => {
-  const [imageError, setImageError] = useState(false);
-  const coverUrl = apiClient.getCoverUrl(game.id);
+  const coverUrl = useCover(game.id);
 
   const isPSP = game.system === 'psp';
 
@@ -30,15 +29,17 @@ export const GameCard: React.FC<GameCardProps> = ({ game, onClick }) => {
     >
       {/* Cover Aspect Ratio container (3:4 standard game cover) */}
       <div className="relative aspect-[3/4] w-full bg-neutral-900 overflow-hidden">
-        {!imageError ? (
-          <img
-            src={coverUrl}
-            alt={game.title}
-            referrerPolicy="no-referrer"
-            loading="lazy"
-            onError={() => setImageError(true)}
-            className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-          />
+        {coverUrl ? (
+          // ICON0 de PSP es apaisado (144x80) y el de PS1 cuadrado: la imagen completa al centro,
+          // sobre una copia desenfocada que llena la tarjeta.
+          <>
+            <img src={coverUrl} alt="" aria-hidden className="absolute inset-0 w-full h-full object-cover scale-125 blur-xl opacity-60" />
+            <img
+              src={coverUrl}
+              alt={game.title}
+              className="relative w-full h-full object-contain p-2 transition-transform duration-300 group-hover:scale-105"
+            />
+          </>
         ) : (
           <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-b from-neutral-800 to-neutral-950 text-center">
             {isPSP ? (
