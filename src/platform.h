@@ -42,6 +42,8 @@ int plat_audio_open(void);
 void plat_audio_play(const int16_t *stereo, int frames);
 void plat_audio_close(void);
 uint64_t plat_time_us(void);
+// Controller vibration (0..255 per motor).
+void plat_rumble(uint8_t big, uint8_t small);
 // Releases the screen and controller (before the built-in engine takes them over).
 void plat_shutdown(void);
 

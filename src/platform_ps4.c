@@ -209,6 +209,12 @@ void plat_frame_end(void) {
     g_fb_idx = (g_fb_idx + 1) % FB_COUNT;
 }
 
+void plat_rumble(uint8_t big, uint8_t small) {
+    if (g_pad < 0) return;
+    OrbisPadVibeParam v = { .lgMotor = big, .smMotor = small };
+    scePadSetVibration(g_pad, &v);
+}
+
 int plat_pad(PadState *out) {
     memset(out, 0, sizeof *out);
     out->lx = out->ly = out->rx = out->ry = 128;

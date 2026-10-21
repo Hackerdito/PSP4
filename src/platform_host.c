@@ -107,12 +107,25 @@ static const Step kSectionsScript[] = {
 // VAULT_SCRIPT=ps1 (with VAULT_PS1=<game>): frames from the PS1 player, then the pause menu.
 static const Step kPs1Script[] = {
     { 120, 0, "21_ps1_juego" },
-    { 400, 0, "22_ps1_juego_2" },
-    { 402, BTN_L3 | BTN_R3, NULL },
-    { 410, 0, "23_ps1_menu" },
-    { 412, BTN_DOWN, NULL }, { 416, BTN_DOWN, NULL }, { 420, BTN_DOWN, NULL }, { 424, BTN_DOWN, NULL },
-    { 430, 0, "24_ps1_menu_salir" },
-    { 432, BTN_CROSS, NULL },
+    { 200, BTN_L3 | BTN_R3, NULL },
+    { 206, 0, "23_ps1_menu" },
+    { 208, BTN_DOWN, NULL }, { 210, BTN_DOWN, NULL }, { 212, BTN_DOWN, NULL },   // -> Tamano
+    { 214, BTN_RIGHT, NULL },                                                    // pantalla completa
+    { 216, BTN_DOWN, NULL }, { 218, BTN_RIGHT, NULL },                           // filtro suave
+    { 222, 0, "24_ps1_menu_ajustes" },
+    { 224, BTN_CIRCLE, NULL },
+    { 260, 0, "25_ps1_completa_suave" },
+    { 262, BTN_L3 | BTN_R3, NULL },
+    { 266, BTN_DOWN, NULL }, { 268, BTN_DOWN, NULL }, { 270, BTN_DOWN, NULL }, { 272, BTN_LEFT, NULL },   // tamano: 4:3
+    { 274, BTN_DOWN, NULL }, { 276, BTN_RIGHT, NULL },                          // filtro: TV
+    { 278, BTN_DOWN, NULL }, { 280, BTN_DOWN, NULL }, { 282, BTN_RIGHT, NULL }, // mostrar FPS
+    { 284, BTN_CIRCLE, NULL },
+    { 330, 0, "26_ps1_tv_fps" },
+    { 332, BTN_L3 | BTN_R3, NULL },
+    { 336, BTN_UP, NULL }, { 338, BTN_UP, NULL }, { 340, BTN_UP, NULL }, { 342, BTN_UP, NULL },  // -> Ver controles
+    { 346, BTN_CROSS, NULL },
+    { 352, 0, "27_ps1_controles" },
+    { 354, BTN_CIRCLE, NULL },
     { 0, 0, NULL },
 };
 
@@ -249,6 +262,7 @@ uint32_t *plat_frame_begin(void) {
 
 void plat_frame_end(void) { g_last = &g_game_canvas; }
 PlatStats plat_stats;
+void plat_rumble(uint8_t big, uint8_t small) { (void)big; (void)small; }
 int plat_frame_ready(void) { return 1; }
 
 int plat_pad(PadState *out) {

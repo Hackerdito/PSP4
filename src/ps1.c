@@ -69,7 +69,55 @@ static struct {
     uint32_t *target;                  // where video_refresh draws (screen or the menu snapshot)
     uint64_t dropped;                  // frames not shown because the screen was busy
     uint64_t blit_us;
+    int vars_dirty;                    // settings changed: the core re-reads its options
+    uint16_t rumble[2];                // strong / weak motor, from the core
+    uint8_t rumble_sent[2];
+    int last_rect[4];                  // output rectangle last drawn (to repaint the bars)
+    Canvas fps_box;                    // the FPS counter, drawn once a second
+    uint64_t fps_t;
+    int fps_frames;
+    int redraw;                        // buffers to repaint with the last frame (after the menu)
 } S;
+
+// ---------------------------------------------------------------- settings (all PS1 games)
+
+typedef struct {
+    int size;       // 0 4:3, 1 full screen (16:9), 2 pixel perfect (whole multiples)
+    int filter;     // 0 sharp, 1 smooth (bilinear), 2 TV scanlines
+    int hires;      // the GPU's 2x internal resolution
+    int fps;        // FPS counter on screen
+    int pad;        // 0 digital pad, 1 DualShock (analog sticks)
+    int rumble;     // vibration
+    int frameskip;  // skip frames when a game runs slow
+} Ps1Settings;
+
+static Ps1Settings G = { 0, 0, 0, 0, 0, 1, 0 };
+#define SETTINGS_FILE PS1_ROOT "/ajustes.txt"
+
+static void settings_load(void) {
+    FILE *f = fopen(SETTINGS_FILE, "r");
+    if (!f) return;
+    char key[32];
+    int v;
+    while (fscanf(f, "%31[^=]=%d\n", key, &v) == 2) {
+        if (!strcmp(key, "pantalla")) G.size = v % 3;
+        else if (!strcmp(key, "filtro")) G.filter = v % 3;
+        else if (!strcmp(key, "alta_resolucion")) G.hires = !!v;
+        else if (!strcmp(key, "fps")) G.fps = !!v;
+        else if (!strcmp(key, "control")) G.pad = !!v;
+        else if (!strcmp(key, "vibracion")) G.rumble = !!v;
+        else if (!strcmp(key, "saltar_cuadros")) G.frameskip = !!v;
+    }
+    fclose(f);
+}
+
+static void settings_save(void) {
+    FILE *f = fopen(SETTINGS_FILE, "w");
+    if (!f) return;
+    fprintf(f, "pantalla=%d\nfiltro=%d\nalta_resolucion=%d\nfps=%d\ncontrol=%d\nvibracion=%d\nsaltar_cuadros=%d\n",
+            G.size, G.filter, G.hires, G.fps, G.pad, G.rumble, G.frameskip);
+    fclose(f);
+}
 
 static void slog(const char *fmt, ...) {
     va_list ap;
@@ -120,13 +168,16 @@ static const char *option(const char *key) {
         { "pcsx_rearmed_show_bios_bootlogo", "disabled" },
         { "pcsx_rearmed_memcard1", "libretro" },        // card 1 = RETRO_MEMORY_SAVE_RAM (our .srm)
         { "pcsx_rearmed_memcard2", "none" },
-        { "pcsx_rearmed_frameskip_type", "disabled" },
+        { "pcsx_rearmed_vibration", "enabled" },
         { "pcsx_rearmed_spu_interpolation", "simple" },
         { "pcsx_rearmed_dithering", "enabled" },
     };
 #ifdef VAULT_HOST
     if (strcmp(key, "pcsx_rearmed_drc") == 0 && getenv("PS1_INTERPRETER")) return "disabled";
 #endif
+    // From the player's settings (pause menu).
+    if (!strcmp(key, "pcsx_rearmed_neon_enhancement_enable")) return G.hires ? "enabled" : "disabled";
+    if (!strcmp(key, "pcsx_rearmed_frameskip_type")) return G.frameskip ? "auto" : "disabled";
     for (size_t i = 0; i < sizeof opts / sizeof opts[0]; i++)
         if (strcmp(opts[i].k, key) == 0) return opts[i].v;
     return NULL;
@@ -144,6 +195,11 @@ static void RETRO_CALLCONV core_log(enum retro_log_level level, const char *fmt,
     slog("[core] %s", buf);
 }
 
+static bool RETRO_CALLCONV set_rumble(unsigned port, enum retro_rumble_effect effect, uint16_t strength) {
+    if (port == 0 && effect <= RETRO_RUMBLE_WEAK) S.rumble[effect] = strength;
+    return true;
+}
+
 static bool env(unsigned cmd, void *data) {
     switch (cmd & ~RETRO_ENVIRONMENT_EXPERIMENTAL) {
     case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
@@ -159,7 +215,10 @@ static bool env(unsigned cmd, void *data) {
         v->value = option(v->key);
         return v->value != NULL;
     }
-    case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: *(bool *)data = false; return true;
+    case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: *(bool *)data = S.vars_dirty; S.vars_dirty = 0; return true;
+    case RETRO_ENVIRONMENT_GET_RUMBLE_INTERFACE:
+        ((struct retro_rumble_interface *)data)->set_rumble_state = set_rumble;
+        return true;
     case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: ((struct retro_log_callback *)data)->log = core_log; return true;
     case RETRO_ENVIRONMENT_GET_CAN_DUPE: *(bool *)data = true; return true;
     case RETRO_ENVIRONMENT_GET_INPUT_BITMASKS: return true;
@@ -175,55 +234,160 @@ static bool env(unsigned cmd, void *data) {
     }
 }
 
-// Scales the core's frame into `dst` (stride SCREEN_W) at 4:3, nearest neighbour.
-static void blit_frame(uint32_t *dst) {
-    if (!S.frame || !S.fw || !S.fh) return;
-    static int xmap[OUT_W];
-    static unsigned map_w;
-    if (map_w != S.fw) {
-        for (int x = 0; x < OUT_W; x++) xmap[x] = (int)((uint64_t)x * S.fw / OUT_W);
-        map_w = S.fw;
+// Where the game goes on the 1920x1080 screen, for the chosen size.
+static void out_rect(int *ox, int *oy, int *ow, int *oh) {
+    switch (G.size) {
+    case 1: *ox = 0; *oy = 0; *ow = SCREEN_W; *oh = SCREEN_H; break;
+    case 2: {   // whole multiples of the game's lines (480-line modes count as 240)
+        int base = S.fh >= 400 ? (int)S.fh / 2 : (int)S.fh;
+        if (base <= 0) base = 240;
+        int k = SCREEN_H / base;
+        if (k < 1) k = 1;
+        *oh = base * k;
+        *ow = *oh * 4 / 3;
+        *ox = (SCREEN_W - *ow) / 2;
+        *oy = (SCREEN_H - *oh) / 2;
+        break;
     }
-    // Each output row is built in ordinary (cached) memory and then copied out: the screen's
-    // memory is write-combined, and reading a row back from it (to repeat it) took ~60 ms a frame.
-    static uint32_t row[1024];
-    static uint32_t scaled[OUT_W];
-    int prev_sy = -1;
-    for (int y = 0; y < SCREEN_H; y++) {
-        uint32_t *out = dst + (size_t)y * SCREEN_W + OUT_X;
-        int sy = (int)((uint64_t)y * S.fh / SCREEN_H);
-        if (sy != prev_sy) {
-            prev_sy = sy;
-            const uint8_t *src = (const uint8_t *)S.frame + (size_t)sy * S.pitch;
-            unsigned w = S.fw > 1024 ? 1024 : S.fw;
-            if (S.fmt == RETRO_PIXEL_FORMAT_XRGB8888) {
-                const uint32_t *p = (const uint32_t *)src;
-                for (unsigned x = 0; x < w; x++) row[x] = p[x] | 0xFF000000u;
-            } else {
-                const uint16_t *p = (const uint16_t *)src;
-                for (unsigned x = 0; x < w; x++) {
-                    uint32_t c = p[x];
-                    uint32_t r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
-                    row[x] = 0xFF000000u | ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2);
-                }
-            }
-            for (int x = 0; x < OUT_W; x++) scaled[x] = row[xmap[x]];
-        }
-        memcpy(out, scaled, OUT_W * 4);   // write-only to the screen
+    default: *ow = 1440; *oh = 1080; *ox = (SCREEN_W - 1440) / 2; *oy = 0; break;
     }
 }
 
-static void clear_bars(uint32_t *dst) {
-    for (int y = 0; y < SCREEN_H; y++) {
-        uint32_t *line = dst + (size_t)y * SCREEN_W;
-        for (int x = 0; x < OUT_X; x++) line[x] = 0xFF000000u;
-        for (int x = OUT_X + OUT_W; x < SCREEN_W; x++) line[x] = 0xFF000000u;
+#define SRC_MAX 2048   // widest frame (640 x 2 with the high-resolution mode)
+
+static void convert_row(unsigned sy, uint32_t *row) {
+    const uint8_t *src = (const uint8_t *)S.frame + (size_t)sy * S.pitch;
+    unsigned w = S.fw > SRC_MAX ? SRC_MAX : S.fw;
+    if (S.fmt == RETRO_PIXEL_FORMAT_XRGB8888) {
+        const uint32_t *p = (const uint32_t *)src;
+        for (unsigned x = 0; x < w; x++) row[x] = p[x] | 0xFF000000u;
+    } else {
+        const uint16_t *p = (const uint16_t *)src;
+        for (unsigned x = 0; x < w; x++) {
+            uint32_t c = p[x];
+            uint32_t r = (c >> 11) & 31, g = (c >> 5) & 63, b = c & 31;
+            row[x] = 0xFF000000u | ((r << 3 | r >> 2) << 16) | ((g << 2 | g >> 4) << 8) | (b << 3 | b >> 2);
+        }
     }
+}
+
+static inline uint32_t lerp_px(uint32_t a, uint32_t b, uint32_t w) {   // w: 0..256
+    uint32_t rb = (((a & 0xFF00FFu) * (256 - w) + (b & 0xFF00FFu) * w) >> 8) & 0xFF00FFu;
+    uint32_t g = (((a & 0x00FF00u) * (256 - w) + (b & 0x00FF00u) * w) >> 8) & 0x00FF00u;
+    return 0xFF000000u | rb | g;
+}
+
+// Scales the core's frame into `dst` (row stride `stride` pixels) with the chosen size and
+// filter. Rows are built in ordinary (cached) memory and only written to `dst`: the screen's
+// memory is write-combined, and reading it back took ~60 ms a frame.
+static void blit_frame(uint32_t *dst, int stride) {
+    if (!S.frame || !S.fw || !S.fh) return;
+    int ox, oy, ow, oh;
+    out_rect(&ox, &oy, &ow, &oh);
+    static int xmap[SCREEN_W], x1map[SCREEN_W];
+    static uint16_t xw[SCREEN_W];
+    static unsigned map_fw;
+    static int map_ow, map_filter = -1;
+    if (map_fw != S.fw || map_ow != ow || map_filter != G.filter) {
+        for (int x = 0; x < ow; x++) {
+            xmap[x] = (int)((uint64_t)x * S.fw / (unsigned)ow);
+            int64_t pos = ((int64_t)(2 * x + 1) * S.fw * 256) / (2 * ow) - 128;   // centre-aligned, 8.8
+            if (pos < 0) pos = 0;
+            int x0 = (int)(pos >> 8);
+            x1map[x] = x0 + 1 < (int)S.fw ? x0 + 1 : x0;
+            xw[x] = (uint16_t)(pos & 255);
+            if (G.filter == 1) xmap[x] = x0;
+        }
+        map_fw = S.fw; map_ow = ow; map_filter = G.filter;
+    }
+
+    static uint32_t row[SRC_MAX], line[SCREEN_W], dark[SCREEN_W];
+    if (G.filter == 1) {
+        // Smooth: bilinear. Two horizontally-scaled source rows are kept and blended per line.
+        static uint32_t ha[SCREEN_W], hb[SCREEN_W];
+        int ia = -1, ib = -1;
+        for (int y = 0; y < oh; y++) {
+            int64_t pos = ((int64_t)(2 * y + 1) * S.fh * 256) / (2 * oh) - 128;
+            if (pos < 0) pos = 0;
+            int s0 = (int)(pos >> 8), s1 = s0 + 1 < (int)S.fh ? s0 + 1 : s0;
+            uint32_t wv = (uint32_t)(pos & 255);
+            if (ia != s0) {
+                if (ib == s0) { memcpy(ha, hb, (size_t)ow * 4); }
+                else { convert_row((unsigned)s0, row); for (int x = 0; x < ow; x++) ha[x] = lerp_px(row[xmap[x]], row[x1map[x]], xw[x]); }
+                ia = s0; ib = -1;
+            }
+            if (ib != s1) {
+                convert_row((unsigned)s1, row);
+                for (int x = 0; x < ow; x++) hb[x] = lerp_px(row[xmap[x]], row[x1map[x]], xw[x]);
+                ib = s1;
+            }
+            for (int x = 0; x < ow; x++) line[x] = lerp_px(ha[x], hb[x], wv);
+            memcpy(dst + (size_t)(oy + y) * stride + ox, line, (size_t)ow * 4);
+        }
+        return;
+    }
+    // Sharp (nearest) and TV (nearest + darker gap between the game's lines).
+    unsigned lines = S.fh >= 400 ? S.fh / 2 : S.fh;   // scanlines follow the TV's 240 lines
+    int prev_sy = -1;
+    for (int y = 0; y < oh; y++) {
+        int sy = (int)((uint64_t)y * S.fh / (unsigned)oh);
+        if (sy != prev_sy) {
+            prev_sy = sy;
+            convert_row((unsigned)sy, row);
+            for (int x = 0; x < ow; x++) line[x] = row[xmap[x]];
+            if (G.filter == 2)
+                for (int x = 0; x < ow; x++) { uint32_t q = line[x]; dark[x] = 0xFF000000u | (((q >> 1) & 0x7F7F7F) + ((q >> 3) & 0x1F1F1F)); }
+        }
+        const uint32_t *src = line;
+        if (G.filter == 2) {
+            uint64_t phase = ((uint64_t)y * lines * 256 / (unsigned)oh) & 255;   // position inside a TV line
+            if (phase >= 150) src = dark;
+        }
+        memcpy(dst + (size_t)(oy + y) * stride + ox, src, (size_t)ow * 4);
+    }
+}
+
+// Black everywhere outside the game's rectangle (write-only).
+static void clear_outside(uint32_t *dst, int stride) {
+    int ox, oy, ow, oh;
+    out_rect(&ox, &oy, &ow, &oh);
+    static uint32_t black[SCREEN_W];
+    if (!black[0]) for (int i = 0; i < SCREEN_W; i++) black[i] = 0xFF000000u;
+    for (int y = 0; y < SCREEN_H; y++) {
+        uint32_t *l = dst + (size_t)y * stride;
+        if (y < oy || y >= oy + oh) { memcpy(l, black, SCREEN_W * 4); continue; }
+        if (ox > 0) { memcpy(l, black, (size_t)ox * 4); memcpy(l + ox + ow, black, (size_t)(SCREEN_W - ox - ow) * 4); }
+    }
+}
+
+// FPS counter: redrawn once a second into a small canvas, copied into the corner each frame.
+static void draw_fps(uint32_t *dst, int stride) {
+    S.fps_frames++;
+    uint64_t t = plat_time_us();
+    int fresh = !S.fps_box.px;
+    if (fresh) { S.fps_box = canvas_new(150, 44); S.fps_t = t; S.fps_frames = 0; }
+    if (fresh || t - S.fps_t >= 1000000) {
+        char txt[24];
+        if (fresh) snprintf(txt, sizeof txt, "-- fps");
+        else snprintf(txt, sizeof txt, "%.0f fps", S.fps_frames * 1e6 / (double)(t - S.fps_t));
+        for (int i = 0; i < 150 * 44; i++) S.fps_box.px[i] = 0xFF000000u;
+        fill_rrect(&S.fps_box, 0, 0, 150, 44, 10, 0x11131A, 1);
+        draw_text(&S.fps_box, FONT_MONO, 22, 16, 30, txt, 0x3DF5C8, 1, 0);
+        S.fps_t = t;
+        S.fps_frames = 0;
+    }
+    for (int y = 0; y < 44; y++) memcpy(dst + (size_t)(20 + y) * stride + 24, S.fps_box.px + y * 150, 150 * 4);
 }
 
 static void video_refresh(const void *data, unsigned w, unsigned h, size_t pitch) {
-    if (!data) return;   // duplicate frame: keep showing the last one
-    S.frame = data; S.fw = w; S.fh = h; S.pitch = pitch;
+    if (!data) {
+        // Duplicate frame: the screen keeps the last one, unless the menu covered it (then the
+        // last frame, which PCSX keeps, is drawn again into each buffer).
+        if (S.redraw <= 0 || !S.frame) return;
+        S.redraw--;
+    } else {
+        S.frame = data; S.fw = w; S.fh = h; S.pitch = pitch;
+    }
     if (w != S.last_w || h != S.last_h) {
         slog("video %ux%u", w, h);
         S.last_w = w; S.last_h = h;
@@ -231,9 +395,14 @@ static void video_refresh(const void *data, unsigned w, unsigned h, size_t pitch
     }
     if (!plat_frame_ready()) { S.dropped++; return; }   // screen still busy: skip, don't wait
     uint32_t *fb = plat_frame_begin();
-    if (S.borders_left > 0) { clear_bars(fb); S.borders_left--; }
+    int r[4];
+    out_rect(&r[0], &r[1], &r[2], &r[3]);
+    if (memcmp(r, S.last_rect, sizeof r)) { memcpy(S.last_rect, r, sizeof r); S.borders_left = 3; }
+    if (S.borders_left > 0) { clear_outside(fb, SCREEN_W); S.borders_left--; }
     uint64_t t = plat_time_us();
-    blit_frame(fb);
+    blit_frame(fb, SCREEN_W);
+    if (G.fps) draw_fps(fb, SCREEN_W);
+    else if (S.fps_box.px) { S.borders_left = 3; free(S.fps_box.px); S.fps_box.px = NULL; }
     S.blit_us += plat_time_us() - t;
     plat_frame_end();
 }
@@ -275,11 +444,13 @@ static void input_poll(void) { plat_pad(&S.pad); }
 static int16_t input_state(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port != 0) return 0;
     uint32_t b = S.pad.buttons;
-    // Left stick doubles as the d-pad for digital-only games.
-    if (S.pad.lx < 48) b |= BTN_LEFT;
-    if (S.pad.lx > 208) b |= BTN_RIGHT;
-    if (S.pad.ly < 48) b |= BTN_UP;
-    if (S.pad.ly > 208) b |= BTN_DOWN;
+    // On the digital pad the left stick doubles as the d-pad; on the DualShock it's a stick.
+    if (!G.pad) {
+        if (S.pad.lx < 48) b |= BTN_LEFT;
+        if (S.pad.lx > 208) b |= BTN_RIGHT;
+        if (S.pad.ly < 48) b |= BTN_UP;
+        if (S.pad.ly > 208) b |= BTN_DOWN;
+    }
     static const uint32_t map[16] = {
         [RETRO_DEVICE_ID_JOYPAD_B] = BTN_CROSS, [RETRO_DEVICE_ID_JOYPAD_Y] = BTN_SQUARE,
         [RETRO_DEVICE_ID_JOYPAD_SELECT] = BTN_TOUCH, [RETRO_DEVICE_ID_JOYPAD_START] = BTN_OPTIONS,
@@ -391,21 +562,124 @@ static int state_load(void) {
 #define C_ACCENT 0x3DF5C8
 #define C_BRAND  0x3F7BFF
 
-enum { M_RESUME, M_SAVE, M_LOAD, M_RESET, M_QUIT, M_COUNT };
+static void apply_pad(void) {
+    CORE(retro_set_controller_port_device)(0, G.pad ? RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 1) : RETRO_DEVICE_JOYPAD);
+}
+
+static void apply_rumble(void) {
+    uint8_t big = G.rumble ? (uint8_t)(S.rumble[RETRO_RUMBLE_STRONG] >> 8) : 0;
+    uint8_t small = G.rumble ? (uint8_t)(S.rumble[RETRO_RUMBLE_WEAK] >> 8) : 0;
+    if (big != S.rumble_sent[0] || small != S.rumble_sent[1]) {
+        plat_rumble(big, small);
+        S.rumble_sent[0] = big; S.rumble_sent[1] = small;
+    }
+}
+
+// The game frozen behind the menu: drawn with the current size and filter, then dimmed.
+static void paint_snapshot(Canvas *snap) {
+    for (size_t i = 0, n = (size_t)SCREEN_W * SCREEN_H; i < n; i++) snap->px[i] = 0xFF000000u;
+    blit_frame(snap->px, SCREEN_W);
+    for (size_t i = 0, n = (size_t)SCREEN_W * SCREEN_H; i < n; i++) {
+        uint32_t q = snap->px[i];
+        snap->px[i] = ((q >> 2) & 0x3F3F3F) + ((q >> 3) & 0x1F1F1F);
+    }
+}
+
+static void draw_glyph(Canvas *c, int g, float cx, float cy, float r) {   // 0 X, 1 O, 2 triangle, 3 square
+    static const uint32_t col[4] = { 0x6FA8FF, 0xFF6B6B, 0x3DF5C8, 0xF49BFF };
+    uint32_t k = col[g];
+    stroke_circle(c, cx, cy, r - 1, 2, k, 1);
+    float q = r * 0.42f;
+    if (g == 0) { draw_line(c, cx - q, cy - q, cx + q, cy + q, 2.2f, k, 1); draw_line(c, cx + q, cy - q, cx - q, cy + q, 2.2f, k, 1); }
+    else if (g == 1) stroke_circle(c, cx, cy, q, 2.2f, k, 1);
+    else if (g == 2) { float h = q * 1.1f; draw_line(c, cx, cy - h, cx + h, cy + h * 0.75f, 2.2f, k, 1); draw_line(c, cx + h, cy + h * 0.75f, cx - h, cy + h * 0.75f, 2.2f, k, 1); draw_line(c, cx - h, cy + h * 0.75f, cx, cy - h, 2.2f, k, 1); }
+    else stroke_rrect(c, cx - q, cy - q, q * 2, q * 2, 1, 2.2f, k, 1);
+}
+
+static float chip(Canvas *c, float x, float cy, const char *t) {
+    float w = text_width(FONT_MONO, 16, t, 0) + 18;
+    stroke_rrect(c, x, cy - 15, w, 30, 7, 1.5f, C_MUTED, 0.8f);
+    draw_text(c, FONT_MONO, 16, x + 9, cy + 6, t, C_TEXT, 1, 0);
+    return w;
+}
+
+// "Ver controles": what each DualShock 4 button does in PS1 games.
+static void controls_page(Canvas *c, const Canvas *snap) {
+    PadState p;
+    uint32_t prev = ~0u;
+    for (;;) {
+        plat_pad(&p);
+        uint32_t pressed = p.buttons & ~prev;
+        prev = p.buttons;
+        if (pressed & (BTN_CIRCLE | BTN_CROSS)) return;
+#ifdef VAULT_HOST
+        if (plat_host_done()) return;
+#endif
+        canvas_blit(c, snap);
+        float w = 980, h = 760, x = (SCREEN_W - w) / 2, y = (SCREEN_H - h) / 2;
+        shadow_rrect(c, x, y + 24, w, h, 28, 70, 0.7f);
+        fill_rrect(c, x, y, w, h, 28, C_PANEL, 0.98f);
+        stroke_rrect(c, x, y, w, h, 28, 1.5f, 0xFFFFFF, 0.1f);
+        float tx = x + 52;
+        draw_text(c, FONT_MONO, 18, tx, y + 62, "CONTROLES \xC2\xB7 PS1", C_ACCENT, 1, 3.6f);
+        draw_text(c, FONT_DISPLAY, 34, tx, y + 110, G.pad ? "Control DualShock (anal\xC3\xB3gico)" : "Control digital", C_TEXT, 1, -0.5f);
+        struct { const char *k; int glyphs; const char *v; } rows[] = {
+            { "\xE2\x9C\x95  \xE2\x97\x8B  \xE2\x96\xA1  \xE2\x96\xB3", 1, "Igual que en el control de PS1" },
+            { "Cruceta", 0, "Cruceta" },
+            { G.pad ? "Sticks" : "Stick izquierdo", 0, G.pad ? "Sticks anal\xC3\xB3gicos (juegos DualShock)" : "Tambi\xC3\xA9n mueve como la cruceta" },
+            { "L1  R1  L2  R2", 0, "L1  R1  L2  R2" },
+            { "OPTIONS", 0, "START" },
+            { "Clic en el touchpad", 0, "SELECT" },
+            { G.pad ? "L3  R3 (uno)" : "L3  R3", 0, G.pad ? "L3  R3 de los sticks" : "No se usan" },
+            { "L3 + R3 juntos", 0, "Este men\xC3\xBA (o touchpad + OPTIONS)" },
+        };
+        float ry = y + 170;
+        for (size_t i = 0; i < sizeof rows / sizeof rows[0]; i++) {
+            fill_rrect(c, x + 28, ry - 34, w - 56, 54, 12, 0xFFFFFF, i % 2 ? 0.0f : 0.035f);
+            if (rows[i].glyphs) for (int g = 0; g < 4; g++) draw_glyph(c, g, tx + 16 + g * 44, ry - 7, 15);
+            else draw_text(c, FONT_DISPLAY, 24, tx, ry, rows[i].k, C_TEXT, 1, 0);
+            draw_text(c, FONT_BODY, 23, x + 430, ry, rows[i].v, C_MUTED, 1, 0);
+            ry += 62;
+        }
+        draw_text(c, FONT_BODY, 20, tx, y + h - 30, "Cambia el tipo de control en el men\xC3\xBA: Control > Tipo de control.", C_MUTED, 1, 0);
+        plat_present(c);
+    }
+}
+
+enum { R_ACTION, R_CHOICE, R_HEADER };
+enum { A_RESUME, A_SAVE, A_LOAD, A_CONTROLS, A_RESET, A_QUIT };
 
 // Returns 1 to keep playing, 0 to quit.
 static int pause_menu(const char *title) {
-    static const char *items[M_COUNT] = { "Continuar", "Guardar estado", "Cargar estado", "Reiniciar juego", "Salir a SAMPSP4" };
+    static const char *kNo[2] = { "No", "S\xC3\xAD" };
+    static const char *kSize[3] = { "4:3 original", "Pantalla completa", "Pixel perfecto" };
+    static const char *kFilter[3] = { "N\xC3\xADtido", "Suave", "TV (scanlines)" };
+    static const char *kPad[2] = { "Digital", "DualShock" };
+    struct Row { int kind; const char *label; int id; int *val; int n; const char **names; } rows[] = {
+        { R_ACTION, "Continuar", A_RESUME, NULL, 0, NULL },
+        { R_ACTION, "Guardar estado", A_SAVE, NULL, 0, NULL },
+        { R_ACTION, "Cargar estado", A_LOAD, NULL, 0, NULL },
+        { R_HEADER, "PANTALLA", 0, NULL, 0, NULL },
+        { R_CHOICE, "Tama\xC3\xB1o", 0, &G.size, 3, kSize },
+        { R_CHOICE, "Filtro", 0, &G.filter, 3, kFilter },
+        { R_CHOICE, "Alta resoluci\xC3\xB3n", 0, &G.hires, 2, kNo },
+        { R_CHOICE, "Mostrar FPS", 0, &G.fps, 2, kNo },
+        { R_HEADER, "CONTROL", 0, NULL, 0, NULL },
+        { R_CHOICE, "Tipo de control", 0, &G.pad, 2, kPad },
+        { R_CHOICE, "Vibraci\xC3\xB3n", 0, &G.rumble, 2, kNo },
+        { R_ACTION, "Ver controles", A_CONTROLS, NULL, 0, NULL },
+        { R_HEADER, "JUEGO", 0, NULL, 0, NULL },
+        { R_CHOICE, "Saltar cuadros si va lento", 0, &G.frameskip, 2, kNo },
+        { R_ACTION, "Reiniciar juego", A_RESET, NULL, 0, NULL },
+        { R_ACTION, "Salir a SAMPSP4", A_QUIT, NULL, 0, NULL },
+    };
+    const int nrows = (int)(sizeof rows / sizeof rows[0]);
+    plat_rumble(0, 0);
+    S.rumble_sent[0] = S.rumble_sent[1] = 0;
     Canvas snap = canvas_new(SCREEN_W, SCREEN_H);
-    memset(snap.px, 0, (size_t)SCREEN_W * SCREEN_H * 4);
-    blit_frame(snap.px);
-    // Dim the game behind the menu once.
-    for (size_t i = 0, n = (size_t)SCREEN_W * SCREEN_H; i < n; i++) {
-        uint32_t p = snap.px[i];
-        snap.px[i] = ((p >> 2) & 0x3F3F3F) + ((p >> 3) & 0x1F1F1F);
-    }
+    paint_snapshot(&snap);
     Canvas c = canvas_new(SCREEN_W, SCREEN_H);
-    char note[96] = "";
+    char note[120] = "";
     char path[512];
     game_paths(PS1_ROOT "/states", ".state", path, sizeof path);
     int has_state = path_exists(path);
@@ -417,55 +691,99 @@ static int pause_menu(const char *title) {
         uint32_t held = p.buttons;
         if (p.ly < 48) held |= BTN_UP;
         if (p.ly > 208) held |= BTN_DOWN;
+        if (p.lx < 48) held |= BTN_LEFT;
+        if (p.lx > 208) held |= BTN_RIGHT;
         uint32_t pressed = held & ~prev;
         prev = held;
-        if ((pressed & BTN_DOWN) && sel < M_COUNT - 1) sel++;
-        if ((pressed & BTN_UP) && sel > 0) sel--;
+        if (pressed & BTN_DOWN) do sel = (sel + 1) % nrows; while (rows[sel].kind == R_HEADER);
+        if (pressed & BTN_UP) do sel = (sel + nrows - 1) % nrows; while (rows[sel].kind == R_HEADER);
         if (pressed & BTN_CIRCLE) result = 1;
-        if (pressed & BTN_CROSS) {
-            switch (sel) {
-            case M_RESUME: result = 1; break;
-            case M_SAVE:
+#ifdef VAULT_HOST
+        if (plat_host_done()) result = 0;
+#endif
+        struct Row *r = &rows[sel];
+        int step = (pressed & BTN_RIGHT) ? 1 : (pressed & BTN_LEFT) ? -1 : (r->kind == R_CHOICE && (pressed & BTN_CROSS)) ? 1 : 0;
+        if (r->kind == R_CHOICE && step) {
+            *r->val = (*r->val + step + r->n) % r->n;
+            settings_save();
+            note[0] = 0;
+            if (r->val == &G.size || r->val == &G.filter) paint_snapshot(&snap);
+            if (r->val == &G.hires) { S.vars_dirty = 1; snprintf(note, sizeof note, "Se aplica al volver al juego"); }
+            if (r->val == &G.frameskip) S.vars_dirty = 1;
+            if (r->val == &G.pad) apply_pad();
+        }
+        if (r->kind == R_ACTION && (pressed & BTN_CROSS)) {
+            switch (r->id) {
+            case A_RESUME: result = 1; break;
+            case A_SAVE:
                 if (state_save()) { snprintf(note, sizeof note, "Estado guardado"); has_state = 1; }
                 else snprintf(note, sizeof note, "No se pudo guardar el estado");
                 break;
-            case M_LOAD:
+            case A_LOAD:
                 if (state_load()) result = 1;
                 else snprintf(note, sizeof note, has_state ? "No se pudo cargar el estado" : "Todav\xC3\xAD" "a no hay un estado guardado");
                 break;
-            case M_RESET: CORE(retro_reset)(); result = 1; break;
-            case M_QUIT: result = 0; break;
+            case A_CONTROLS: controls_page(&c, &snap); prev = ~0u; break;
+            case A_RESET: CORE(retro_reset)(); result = 1; break;
+            case A_QUIT: result = 0; break;
             }
         }
+
         canvas_blit(&c, &snap);
-        float w = 640, h = 140 + M_COUNT * 72 + 60, x = (SCREEN_W - w) / 2, y = (SCREEN_H - h) / 2;
+        const float row_h = 50, head_h = 38;
+        float content = 0;
+        for (int i = 0; i < nrows; i++) content += rows[i].kind == R_HEADER ? head_h : row_h;
+        float w = 780, h = 140 + content + 70, x = (SCREEN_W - w) / 2, y = (SCREEN_H - h) / 2;
         shadow_rrect(&c, x, y + 24, w, h, 28, 70, 0.7f);
         fill_rrect(&c, x, y, w, h, 28, C_PANEL, 0.97f);
         stroke_rrect(&c, x, y, w, h, 28, 1.5f, 0xFFFFFF, 0.1f);
-        float tx = x + 48;
-        float wx = tx;
-        wx += draw_text(&c, FONT_MONO, 18, wx, y + 62, "SAM", C_ACCENT, 1, 3.6f);
-        wx += draw_text(&c, FONT_MONO, 18, wx, y + 62, "PSP", C_BRAND, 1, 3.6f);
-        draw_text(&c, FONT_MONO, 18, wx, y + 62, "4 \xC2\xB7 PS1", C_ACCENT, 1, 3.6f);
+        float tx = x + 48, wx = tx;
+        wx += draw_text(&c, FONT_MONO, 18, wx, y + 58, "SAM", C_ACCENT, 1, 3.6f);
+        wx += draw_text(&c, FONT_MONO, 18, wx, y + 58, "PSP", C_BRAND, 1, 3.6f);
+        draw_text(&c, FONT_MONO, 18, wx, y + 58, "4 \xC2\xB7 PS1", C_ACCENT, 1, 3.6f);
         char t[160];
-        text_ellipsize(FONT_DISPLAY, 34, title, w - 96, t, sizeof t, -0.5f);
-        draw_text(&c, FONT_DISPLAY, 34, tx, y + 110, t, C_TEXT, 1, -0.5f);
-        for (int i = 0; i < M_COUNT; i++) {
-            float ry = y + 140 + i * 72;
-            if (i == sel) {
-                fill_rrect(&c, x + 24, ry, w - 48, 60, 16, C_ACCENT, 0.14f);
-                stroke_rrect(&c, x + 24, ry, w - 48, 60, 16, 2, C_ACCENT, 0.8f);
+        text_ellipsize(FONT_DISPLAY, 32, title, w - 96, t, sizeof t, -0.5f);
+        draw_text(&c, FONT_DISPLAY, 32, tx, y + 104, t, C_TEXT, 1, -0.5f);
+        float ry = y + 130;
+        for (int i = 0; i < nrows; i++) {
+            struct Row *q = &rows[i];
+            if (q->kind == R_HEADER) {
+                draw_text(&c, FONT_MONO, 15, tx, ry + 28, q->label, C_MUTED, 1, 3);
+                ry += head_h;
+                continue;
             }
-            uint32_t col = (i == M_LOAD && !has_state) ? C_MUTED : C_TEXT;
-            draw_text(&c, FONT_DISPLAY, 26, tx, ry + 40, items[i], col, 1, 0);
+            if (i == sel) {
+                fill_rrect(&c, x + 24, ry, w - 48, row_h - 6, 14, C_ACCENT, 0.14f);
+                stroke_rrect(&c, x + 24, ry, w - 48, row_h - 6, 14, 2, C_ACCENT, 0.8f);
+            }
+            uint32_t col = (q->id == A_LOAD && q->kind == R_ACTION && !has_state) ? C_MUTED : C_TEXT;
+            draw_text(&c, FONT_DISPLAY, 23, tx, ry + 31, q->label, col, 1, 0);
+            if (q->kind == R_CHOICE) {
+                const char *v = q->names[*q->val];
+                float vw = text_width(FONT_BODY, 22, v, 0);
+                float vx = x + w - 48 - vw - (i == sel ? 30 : 0);
+                draw_text(&c, FONT_BODY, 22, vx, ry + 30, v, i == sel ? C_ACCENT : C_MUTED, 1, 0);
+                if (i == sel) {
+                    fill_triangle(&c, vx - 22, ry + 22, vx - 12, ry + 15, vx - 12, ry + 29, C_ACCENT, 1);
+                    fill_triangle(&c, x + w - 56, ry + 22, x + w - 66, ry + 15, x + w - 66, ry + 29, C_ACCENT, 1);
+                }
+            }
+            ry += row_h;
         }
-        draw_text(&c, FONT_BODY, 20, tx, y + h - 26, note[0] ? note : "Cruz: elegir   \xC2\xB7   C\xC3\xADrculo: volver al juego", note[0] ? C_ACCENT : C_MUTED, 1, 0);
+        float hy = y + h - 30, hx = tx;
+        if (note[0]) draw_text(&c, FONT_BODY, 20, hx, hy, note, C_ACCENT, 1, 0);
+        else {
+            draw_glyph(&c, 0, hx + 12, hy - 7, 12); hx += draw_text(&c, FONT_BODY, 19, hx + 30, hy, "Elegir", C_MUTED, 1, 0) + 54;
+            hx += chip(&c, hx, hy - 7, "\xE2\x86\x90 \xE2\x86\x92") + 10; hx += draw_text(&c, FONT_BODY, 19, hx, hy, "Cambiar", C_MUTED, 1, 0) + 40;
+            draw_glyph(&c, 1, hx + 12, hy - 7, 12); draw_text(&c, FONT_BODY, 19, hx + 30, hy, "Volver al juego", C_MUTED, 1, 0);
+        }
         plat_present(&c);
     }
     free(c.px);
     free(snap.px);
-    // Repaint the side bars of every buffer after the menu covered them.
+    // Repaint every buffer (bars and game) after the menu covered them.
     S.borders_left = 3;
+    S.redraw = 3;
     return result;
 }
 
@@ -494,6 +812,7 @@ int ps1_run(const char *path) {
     mkdirs(S.save_dir);
     S.log = fopen(PS1_ROOT "/ps1.log", "w");
     title_from_path(path, g_base, sizeof g_base);
+    settings_load();
     slog("SAMPSP4 PS1: %s", path);
 
     CORE(retro_set_environment)(env);
@@ -511,7 +830,7 @@ int ps1_run(const char *path) {
         if (S.log) fclose(S.log);
         return -1;
     }
-    CORE(retro_set_controller_port_device)(0, RETRO_DEVICE_JOYPAD);
+    apply_pad();
     struct retro_system_av_info av;
     CORE(retro_get_system_av_info)(&av);
     S.sample_rate = av.timing.sample_rate > 0 ? av.timing.sample_rate : 44100;
@@ -560,6 +879,7 @@ int ps1_run(const char *path) {
             if (!pause_menu(g_base)) break;
             prev = ~0u;
         }
+        apply_rumble();
         uint64_t now = plat_time_us();
         if (now - last_card > 5000000) { card_save(0); last_card = now; }
     }
@@ -570,6 +890,8 @@ int ps1_run(const char *path) {
     }
     slog("quit after %d frames", frames);
     card_save(0);
+    plat_rumble(0, 0);
+    if (S.fps_box.px) { free(S.fps_box.px); S.fps_box.px = NULL; }
     plat_audio_close();
     CORE(retro_unload_game)();
     CORE(retro_deinit)();

@@ -2,7 +2,7 @@
 
 SAMPSP4 es un homebrew para PS4 con jailbreak (GoldHEN). Lee tus respaldos de **PSP** (`.iso`, `.cso`, `EBOOT.PBP`, `.chd`) y de **PS1** (`.cue/.bin`, `.chd`, `.iso`, `EBOOT.PBP`) y los muestra en una biblioteca moderna, separada en tres secciones: **ISO / CSO**, **EBOOT y Homebrew** y **PS1**.
 
-> **Estado: v1.5, con dos motores integrados y descargas desde tu PC.** PSP: PPSSPP con el port a PS4 de [M33](https://github.com/iHaiDeeZ/M33). PS1: [PCSX-ReARMed](https://github.com/libretro/pcsx_rearmed) con su recompilador lightrec. Todo dentro del mismo PKG; no hace falta instalar otra app. Detalles en [`engine/`](engine/README.md).
+> **Estado: v1.8, con dos motores integrados y descargas desde tu PC.** PSP: PPSSPP con el port a PS4 de [M33](https://github.com/iHaiDeeZ/M33). PS1: [PCSX-ReARMed](https://github.com/libretro/pcsx_rearmed) con su recompilador lightrec. Todo dentro del mismo PKG; no hace falta instalar otra app. Detalles en [`engine/`](engine/README.md).
 
 ## Instalar en tu PS4
 
@@ -93,7 +93,16 @@ Tus partidas quedan en `/data/vault/psp/PSP/SAVEDATA`. Si algo falla, `/data/vau
 | Stick izquierdo | Cruceta |
 | OPTIONS | START |
 | Clic en el touchpad | SELECT |
-| **L3 + R3** (o touchpad + OPTIONS) | Menú: continuar, guardar y cargar estado, reiniciar, **Salir a SAMPSP4** |
+| **L3 + R3** (o touchpad + OPTIONS) | Menú de PS1 (abajo) |
+
+**Menú de PS1** (con ← → cambias cada opción; se guardan en `/data/vault/ps1/ajustes.txt` para todos los juegos de PS1):
+
+| Sección | Opciones |
+| --- | --- |
+| Partida | Continuar · Guardar estado · Cargar estado · Reiniciar · Salir a SAMPSP4 |
+| Pantalla | **Tamaño**: 4:3 original / Pantalla completa / Pixel perfecto · **Filtro**: Nítido / Suave / TV (scanlines) · **Alta resolución** (2× interna) · **Mostrar FPS** |
+| Control | **Tipo**: Digital / DualShock (sticks analógicos) · **Vibración** · **Ver controles** |
+| Juego | **Saltar cuadros si va lento** |
 
 - Memory card: `/data/vault/ps1/saves/<juego>.srm` (se guarda sola cada 5 s si cambió y al salir; mismo formato que RetroArch).
 - Estados: `/data/vault/ps1/states/`.
